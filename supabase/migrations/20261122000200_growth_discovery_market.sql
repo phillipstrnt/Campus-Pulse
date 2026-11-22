@@ -19,6 +19,8 @@ insert into public.campus_email_domains(email_domain, campus_name) values
 on conflict (email_domain) do nothing;
 
 alter table public.profiles add column if not exists interests text[] not null default '{}';
+alter table public.profiles drop constraint if exists profiles_interests_check;
+alter table public.profiles add constraint profiles_interests_check check (interests <@ array['Campus life','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+']::text[]);
 create table if not exists private.account_identities (
   user_id uuid primary key references public.profiles(id) on delete cascade,
   email_fingerprint text not null unique
@@ -43,14 +45,14 @@ create or replace function public.validate_campus_signup()
 returns trigger language plpgsql security definer set search_path = public, extensions
 as $$
 declare
-  email_domain text;
+  signup_domain text;
   birthday date;
 begin
   if new.email is null or position('@' in new.email) = 0 then
     raise exception using errcode = '23514', message = 'Enter a valid campus email address.';
   end if;
-  email_domain := lower(split_part(trim(new.email), '@', 2));
-  if not exists (select 1 from public.campus_email_domains d where d.active and d.email_domain = email_domain) then
+  signup_domain := lower(split_part(trim(new.email), '@', 2));
+  if not exists (select 1 from public.campus_email_domains d where d.active and d.email_domain = signup_domain) then
     raise exception using errcode = '23514', message = 'This email domain is not approved for Campus Pulse. Use your university-issued email.';
   end if;
   if coalesce(new.raw_user_meta_data->>'date_of_birth', '') !~ '^\d{4}-\d{2}-\d{2}$' then
