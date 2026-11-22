@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Community from './Community'
 import AuthPanel from './AuthPanel'
+import Messaging from './Messaging'
 import { supabase } from './supabase'
 import './App.css'
 
@@ -62,14 +63,13 @@ function App() {
   const [filter, setFilter] = useState('For you')
   const [selectedInterest, setSelectedInterest] = useState('All interests')
   const [nearbyPeople, setNearbyPeople] = useState(null)
-  const isPlus = account.plus
+  const [cloudPaidMember, setCloudPaidMember] = useState({ userId: null, active: false })
+  const isPlus = supabase ? Boolean(session?.user?.id && cloudPaidMember.userId === session.user.id && cloudPaidMember.active) : account.plus
   const [modal, setModal] = useState('')
   const [toast, setToast] = useState('')
   const [liked, setLiked] = useState([])
   const [search, setSearch] = useState('')
   const [selectedPerson, setSelectedPerson] = useState(people[0])
-  const [message, setMessage] = useState('')
-  const [sentMessages, setSentMessages] = useState([])
 
   useEffect(() => { window.localStorage.setItem('campus-pulse-account', JSON.stringify(account)) }, [account])
   useEffect(() => {
@@ -79,7 +79,19 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const notify = (text) => { setToast(text); window.setTimeout(() => setToast(''), 2600) }
+  useEffect(() => {
+    if (!supabase || !session?.user?.id) return undefined
+    let active = true
+    const refreshMembership = async () => {
+      const { data, error } = await supabase.from('subscriptions').select('id').eq('user_id', session.user.id).eq('status', 'active').in('plan', ['plus', 'creator']).gt('current_period_end', new Date().toISOString()).limit(1)
+      if (active && !error) setCloudPaidMember({ userId: session.user.id, active: Boolean(data?.length) })
+    }
+    refreshMembership()
+    const channel = supabase.channel(`membership-${session.user.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'subscriptions', filter: `user_id=eq.${session.user.id}` }, refreshMembership).subscribe()
+    return () => { active = false; supabase.removeChannel(channel) }
+  }, [session?.user?.id])
+
+  const notify = useCallback((text) => { setToast(text); window.setTimeout(() => setToast(''), 2600) }, [])
   const discoveryPeople = filter === 'Nearby' && nearbyPeople ? nearbyPeople : people
   const filteredPeople = discoveryPeople.filter((person) => `${person.name} ${person.school} ${person.vibe} ${(person.interests || []).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (selectedInterest === 'All interests' || person.interests?.includes(selectedInterest)) && (filter !== 'Nearby' || nearbyPeople || person.school.startsWith('Makerere')) && (filter !== 'My school' || person.school.startsWith('Makerere')))
   const toggleLike = (name) => setLiked((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name])
@@ -129,7 +141,7 @@ function App() {
         </div>}
         {['For You', 'Events', 'Membership', 'Marketplace', 'Hostels'].includes(active) && <Community page={active} account={account} setAccount={setAccount} notify={notify} session={session} />}
 
-          {active === 'Messages' && <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">Pick up where the good energy left off.</p></section>{isPlus ? <div className="inbox-layout"><div className="inbox-list"><div className="inbox-search">⌕ <input placeholder="Search messages" /></div>{[people[0], people[1], people[2]].map((person, i) => <button className={`inbox-person ${selectedPerson.name === person.name ? 'active' : ''}`} key={person.name} onClick={() => setSelectedPerson(person)}><span className={`avatar avatar-${person.color}`}>{person.initials}</span><span><b>{person.name}</b><small>{['Hey! Are you going to the art fair?', 'That playlist is so good 😭', 'We should grab coffee sometime'][i]}</small></span><small className="message-time">{['2m', '1h', '3h'][i]}</small></button>)}</div><div className="chat-panel"><div className="chat-header"><span className={`avatar avatar-${selectedPerson.color}`}>{selectedPerson.initials}</span><span><b>{selectedPerson.name}</b><small>{selectedPerson.online ? '● Active now' : 'Last seen recently'}</small></span><button onClick={() => notify('Starting a video call…')}>▣</button></div><div className="chat-messages"><span className="date-label">TODAY</span><div className="bubble received">Hey! Are you going to the art fair this weekend?</div><div className="bubble sent">I was just thinking about that! It looks so fun ✨</div>{sentMessages.map((item, i) => <div className="bubble sent" key={i}>{item}</div>)}<div className="bubble received">Right? We should check it out together!</div></div><form className="chat-compose" onSubmit={(event) => { event.preventDefault(); if (message.trim()) { setSentMessages([...sentMessages, message.trim()]); setMessage('') } }}><button type="button" onClick={() => notify('Photo sharing is coming soon')}>＋</button><input placeholder="Say something nice…" value={message} onChange={(event) => setMessage(event.target.value)} /><button className="send-button" aria-label="Send message">↑</button></form></div></div> : <div className="locked-panel"><span className="lock-icon">✦</span><h2>Your next conversation is waiting.</h2><p>Pulse Plus members can send messages, make video calls and keep the connection going.</p><button className="primary-button" onClick={() => setModal('upgrade')}>Unlock messaging <span>→</span></button></div>}</div>}
+          {active === 'Messages' && <Messaging session={session} isPlus={isPlus} selectedPerson={selectedPerson} notify={notify} onUpgrade={() => setModal('upgrade')} />}
 
         {active === 'Live rooms' && <Community page="Live rooms" account={account} setAccount={setAccount} notify={notify} session={session} />}
 

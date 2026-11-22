@@ -21,7 +21,8 @@ Supabase is the selected pilot database, auth, storage, and realtime provider. I
 3. The migration seeds verified Makerere domains documented by the university. To onboard another institution, insert its official student email domain (in `email_domain`) and campus name into `public.campus_email_domains` after confirming the domain with that university. Never add public email services such as Gmail as campus domains.
 4. Configure Supabase Auth to require email confirmation. Signup requires an approved campus domain and an age attestation of 18 or older. The date of birth is checked by a database trigger and discarded instead of being retained.
 5. Copy `client/.env.example` to `client/.env.local` and set the Supabase URL and publishable key. Do not expose a service-role key in the client.
-6. Add trusted moderators in `public.profiles` only through the Supabase SQL editor. Moderators can review events, listings, hostel posts, and room schedules.
+6. Apply `20261122000300_messaging_and_reports.sql` for persistent private conversations, server-enforced paid sending, blocking, and moderator-only safety reports. Messaging requires an active, server-recorded Plus or Creator subscription; the demo plan switch does not satisfy this check.
+7. Add trusted moderators in `public.profiles` only through the Supabase SQL editor. Moderators can review events, listings, hostel posts, and room schedules.
 
 Makerere's official student-email guidance describes its current `@students.mak.ac.ug` format and legacy college-domain addresses. See [Makerere student email setup](https://news.mak.ac.ug/wp-content/uploads/2025/09/Freshers-joining-Instructions-2025-2026.pdf) and [Makerere email support](https://answers.mak.ac.ug/email/getting-email). The allowlist is intentionally administrator-controlled; maintain the supported domains as institutions migrate.
 
