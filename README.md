@@ -1,5 +1,9 @@
 # Campus Pulse
 
+## Live preview
+
+[Open Campus Pulse](https://phillipstrnt.github.io/Campus-Pulse/)
+
 Campus Pulse is a campus community prototype for short video, campus interests, nearby discovery, events, verified student accounts, live-room schedules, marketplace listings, hostel listings, and monthly member plans.
 
 ## Run the preview
