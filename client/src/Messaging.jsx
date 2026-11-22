@@ -78,12 +78,13 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
       const people = (data || []).map((profile, index) => ({ id: profile.id, name: profile.display_name, school: profile.university || 'Campus member', interests: profile.interests || [], color: ['lilac','peach','mint','blue'][index % 4], initials: (profile.display_name || 'CP').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() }))
       setDirectory(people); setBlockedIds((blocks || []).map((item) => item.blocked_id))
       await loadConversationList()
-      if (selectedPerson?.name) setActivePeer(people.find((person) => person.name === selectedPerson.name) || people[0] || null)
+      if (selectedPerson?.id) setActivePeer(people.find((person) => person.id === selectedPerson.id) || { id: selectedPerson.id, name: selectedPerson.username ? `@${selectedPerson.username}` : selectedPerson.name || 'Campus member', school: selectedPerson.school || 'Campus member', initials: (selectedPerson.username || selectedPerson.name || 'CP').slice(0, 2).toUpperCase(), color: 'lilac' })
+      else if (selectedPerson?.name) setActivePeer(people.find((person) => person.name === selectedPerson.name) || people[0] || null)
       else setActivePeer((current) => current ? people.find((person) => person.id === current.id) || people[0] || null : people[0] || null)
     }
     loadDirectory()
     return () => { active = false }
-  }, [userId, selectedPerson?.name, notify, loadConversationList])
+  }, [userId, selectedPerson?.id, selectedPerson?.name, selectedPerson?.username, selectedPerson?.school, notify, loadConversationList])
 
   useEffect(() => {
     if (!supabase || !userId || !activeConversation) return undefined
