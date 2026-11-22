@@ -1,8 +1,8 @@
 # Campus Pulse
 
-Campus Pulse is a campus community prototype with a short-video For You feed, posts, events, community announcements, messaging, and monthly membership tiers.
+Campus Pulse is a campus community prototype for short video, campus interests, nearby discovery, events, verified student accounts, live-room schedules, marketplace listings, hostel listings, and monthly member plans.
 
-## Run the front end
+## Run the preview
 
 ```powershell
 cd client
@@ -10,35 +10,42 @@ npm install
 npm run dev
 ```
 
-The current interface runs in demo mode and saves sample posts, events, RSVPs, and membership previews in the current browser. It is not yet a multi-user service: browser-local data does not sync between users or devices. Uploaded demo video previews do not survive a refresh.
+Without Supabase credentials the interface is a local demo. Sample posts, listings, rooms, events, and membership state live in the current browser only and do not sync across devices.
 
-## Free-tier backend starter
+## Supabase Free setup
 
-The project includes a Supabase schema at `supabase/migrations/20261122000100_campus_pulse.sql` for authentication profiles, reels, campus events, RSVPs, subscriptions, verification applications, row-level security, private media storage, and Realtime publication. With Supabase credentials configured, the app signs users in, uploads videos to private storage, queues reels/events for review, reads approved campus content, and listens for approved event announcements. Without credentials, it uses browser-local demo content.
+Supabase is the selected pilot database, auth, storage, and realtime provider. It keeps the app on managed PostgreSQL and supports row-level access policies; it is appropriate for a small pilot, with usage limits and inactivity pauses. Review [Supabase pricing](https://supabase.com/pricing) before launch.
 
-1. Create a Supabase project and run the SQL migration in its SQL editor.
-2. Copy `client/.env.example` to `client/.env.local` and enter the project URL and publishable anon key.
-3. Configure Supabase Auth email confirmation and permitted university email domains.
-4. Grant moderator access only to trusted staff by updating their `profiles.role` from `student` to `moderator` in the Supabase SQL editor. Never add a public role switch.
-5. Run `npm run dev` from `client`, sign up, and test media/event review in a small private pilot.
+1. Create a Supabase project and apply migrations in filename order from `supabase/migrations/`.
+2. The second migration enables PostGIS for nearby discovery and adds private, rounded location storage. If your project does not allow enabling extensions by SQL, enable PostGIS in the Supabase Extensions page first.
+3. The migration seeds verified Makerere domains documented by the university. To onboard another institution, insert its official student email domain (in `email_domain`) and campus name into `public.campus_email_domains` after confirming the domain with that university. Never add public email services such as Gmail as campus domains.
+4. Configure Supabase Auth to require email confirmation. Signup requires an approved campus domain and an age attestation of 18 or older. The date of birth is checked by a database trigger and discarded instead of being retained.
+5. Copy `client/.env.example` to `client/.env.local` and set the Supabase URL and publishable key. Do not expose a service-role key in the client.
+6. Add trusted moderators in `public.profiles` only through the Supabase SQL editor. Moderators can review events, listings, hostel posts, and room schedules.
 
-Supabase's current free tier is suitable for a small pilot, with quotas and inactivity pauses. The free plan currently lists a 500 MB database, 1 GB file storage, and a 50 MB maximum upload size; check the current [Supabase pricing](https://supabase.com/pricing) before launch. Compress short clips, limit their length, and monitor storage and egress. A managed service is not cost-free at scale.
+Makerere's official student-email guidance describes its current `@students.mak.ac.ug` format and legacy college-domain addresses. See [Makerere student email setup](https://news.mak.ac.ug/wp-content/uploads/2025/09/Freshers-joining-Instructions-2025-2026.pdf) and [Makerere email support](https://answers.mak.ac.ug/email/getting-email). The allowlist is intentionally administrator-controlled; maintain the supported domains as institutions migrate.
 
-## Monthly memberships and payments
+## Product and safety policy
 
-The interface has suggested monthly tiers for Pulse Plus, Creator, and Campus Promoter. The UGX amounts are placeholders for product testing and must be validated with students before charging. A paid state in the browser demo is not proof of payment.
+- Discovery categories include Sports, Science & tech, Drama & arts, Entertainment, campus life, and adult dating. Dating is restricted to 18+ users. Nudity and explicit sexual content are prohibited.
+- Nearby search requests browser location only after the member selects Nearby. Coordinates are rounded to roughly 1 km, stored in a private schema, and only approximate distance is returned. Members can switch it off to delete the saved location.
+- Reels, events, marketplace items, hostel rooms, and live-room schedules are submitted for moderator review. Listing photos use private storage and signed URLs.
+- Existing account emails are unique. The migration also fingerprints normalized emails and common Gmail aliases. Other proxy identities or account farms cannot be reliably linked from email alone; for a broader launch, add verified student-number checks, Supabase Auth CAPTCHA/rate limits, and a manual appeal path instead of invasive device fingerprinting.
+- Meetup guidance recommends public locations, no advance deposits before viewing, and private contact details. Report/block flows and account appeals should be completed before opening registration broadly.
 
-Flutterwave is a practical Uganda-first provider to evaluate: its documentation lists UGX card and Uganda mobile-money checkout, plus monthly plans. Its payment-plan subscriptions are card-only, so MTN/Airtel Mobile Money should initially use monthly one-off checkout and renewal reminders unless the provider confirms recurring mobile-money support. Keep secret keys on a trusted server or Edge Function, verify signed payment webhooks, and only then update `subscriptions`. Never trust client-side plan selection to grant paid access. See [Flutterwave Uganda payment methods](https://developer.flutterwave.com/docs/payment-methods) and [payment plans](https://developer.flutterwave.com/docs/recurring-payments/payment-plans).
+## Scale and launch boundaries
 
-Paystack is not a good initial merchant choice for a Uganda-registered business: its current support documentation lists Nigeria, Ghana, South Africa, and Kenya as supported merchant countries, not Uganda.
+The migrations add feed and seller indexes, page-sized queries, private media, row-level security, and PostGIS for location queries. This gives the pilot a clean path to scale while keeping sensitive location rows out of the public API. Supabase recommends RLS on every exposed table; see [Supabase RLS guidance](https://supabase.com/docs/guides/database/postgres/row-level-security). For high-volume event notifications, use Realtime Broadcast with private channel authorization; Supabase notes it scales better than Postgres Changes for broadcasts ([Realtime subscriptions](https://supabase.com/docs/guides/realtime/subscribing-to-database-changes)).
 
-## Before launch
+The app currently stores live-room schedules, but actual livestreams/video calls still need a WebRTC media provider and a secure server endpoint that issues short-lived room tokens. LiveKit is a reasonable provider to evaluate; its free Build plan has hard usage caps, so confirm the current quotas and costs before a public launch ([LiveKit quotas](https://docs.livekit.io/deploy/admin/quotas-and-limits/)). Video transcoding, signed upload quotas, abuse monitoring, retention, and media moderation should be configured before creator growth.
 
-- Add a moderator reel-review screen, moderator audit logs, and operational removal/appeal tools. Reel uploads stay private and pending until approved.
-- Set production limits for video duration, video transcoding, storage cleanup, comment moderation, rate limits, and access control.
-- Add server-verified payment checkout/webhooks, cancellations, renewals, receipts, and delinquent-subscription handling.
-- Add real push notifications and Realtime listeners for approved campus announcements.
-- Add video transcoding, content reporting, blocking, rate limits, retention rules, privacy terms, and campus safety review.
-- Connect a WebRTC/video provider before marketing live calls or livestreams as available.
+Paid plan selection in the demo is not proof of payment. Production subscriptions require checkout plus verified server-side payment webhooks before granting membership access. Prices in the demo are research placeholders.
 
-Run a production build and lint from `client` with `npm run build` and `npm run lint`.
+## Validate the client
+
+From the repository root:
+
+```powershell
+npm run build --prefix client
+npm run lint --prefix client
+```

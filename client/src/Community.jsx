@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
+import Marketplace from './Marketplace'
+import LiveRooms from './LiveRooms'
 import './Community.css'
 
 const starterClips = [
-  { id: 'clip-1', author: 'Amina K. · Makerere', caption: 'POV: you said one quick rolex after class 🌯', tag: '#kampalaeats', tone: 'gold', likes: 284, comments: 18 },
-  { id: 'clip-2', author: 'Joel M. · Kyambogo', caption: 'Little moments from this week on campus ✨', tag: '#campuslife', tone: 'violet', likes: 156, comments: 12 },
+  { id: 'clip-1', author: 'Amina K. · Makerere', caption: 'POV: you said one quick rolex after class 🌯', tag: '#kampalaeats', category: 'Entertainment', tone: 'gold', likes: 284, comments: 18 },
+  { id: 'clip-2', author: 'Joel M. · Kyambogo', caption: 'Little moments from this week on campus ✨', tag: '#campuslife', category: 'Campus life', tone: 'violet', likes: 156, comments: 12 },
+  { id: 'clip-3', author: 'Brian T. · Makerere', caption: 'A tiny solar project from the engineering lab ⚡', tag: '#buildwithus', category: 'Science & tech', tone: 'violet', likes: 98, comments: 7 },
+  { id: 'clip-4', author: 'Nadia S. · UCU', caption: 'Rehearsal night before the campus showcase 🎭', tag: '#studentstage', category: 'Drama & arts', tone: 'gold', likes: 122, comments: 11 },
 ]
 const starterEvents = [
   { id: 'event-1', title: 'Kampala Campus Creators Meetup', place: 'Makerere University · Freedom Square', date: 'Friday, 5:30 PM', detail: 'Bring a friend, meet student creators and share what you’re building.', category: 'CAMPUS EVENT', promoted: true },
@@ -15,23 +19,25 @@ const load = (key, fallback) => { try { return JSON.parse(window.localStorage.ge
 function Feed({ clips, events, notify, onCreate }) {
   const [clipIndex, setClipIndex] = useState(0)
   const [likedClips, setLikedClips] = useState(() => load('campus-pulse-clip-likes', []))
-  const clip = clips[clipIndex]
+  const [interest, setInterest] = useState('For you')
+  const feedClips = interest === 'For you' ? clips : clips.filter((item) => item.category === interest)
+  const clip = feedClips[clipIndex] || feedClips[0]
   const highlightedEvent = events.find((event) => event.promoted)
   const toggleLike = (id) => setLikedClips((current) => {
     const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
     window.localStorage.setItem('campus-pulse-clip-likes', JSON.stringify(next))
     return next
   })
-  if (!clip) return <div className="community-page"><div className="community-heading"><div><span className="community-kicker">CAMPUS, ON REPEAT</span><h1>Your <em>For You</em> feed</h1><p>No approved clips yet. Be the first to share a moment.</p></div><button className="community-primary" onClick={onCreate}>＋ Create post</button></div><div className="empty-feed">Campus clips will show here after review. Check the Events tab for what’s happening.</div></div>
+  if (!clip) return <div className="community-page"><div className="community-heading"><div><span className="community-kicker">CAMPUS, ON REPEAT</span><h1>Your <em>For You</em> feed</h1><p>Find clips in the campus topics you care about.</p></div><button className="community-primary" onClick={onCreate}>＋ Create post</button></div><div className="feed-tabs">{['For you','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <button key={item} className={interest === item ? 'chosen' : ''} onClick={() => { setInterest(item); setClipIndex(0) }}>{item}</button>)}<span className="feed-note">Adult dating · no nudity</span></div><div className="empty-feed">{clips.length ? `No approved clips in ${interest} yet. Try another topic or be the first to post.` : 'Campus clips will show here after review. Be the first to share a moment.'}</div></div>
   return <div className="community-page">
     <div className="community-heading"><div><span className="community-kicker">CAMPUS, ON REPEAT</span><h1>Your <em>For You</em> feed</h1><p>Quick clips, campus happenings, and people worth meeting.</p></div><button className="community-primary" onClick={onCreate}>＋ Create post</button></div>
-    <div className="feed-tabs"><button className="chosen">For you</button><button onClick={() => notify('Following feed is coming soon')}>Following</button><button onClick={() => notify('Popular campus clips are loading')}>Trending</button><span className="feed-note">Short videos · campus-first</span></div>
+    <div className="feed-tabs">{['For you','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <button key={item} className={interest === item ? 'chosen' : ''} onClick={() => { setInterest(item); setClipIndex(0) }}>{item}</button>)}<span className="feed-note">Adult dating · no nudity</span></div>
     <div className="feed-layout"><section className={`reel-card reel-${clip.tone}`} key={clip.id}>
       {clip.video ? <video className="reel-video" src={clip.video} controls playsInline /> : <div className="reel-art"><span className="reel-deco deco-a">✳</span><span className="reel-deco deco-b">✦</span><span className="reel-emoji">{clip.tone === 'gold' ? '🌯' : clip.tone === 'user' ? '🎬' : '🎧'}</span><span className="reel-sound">♫ &nbsp; Original audio</span></div>}
       <div className="reel-copy"><span className="reel-author">{clip.author}</span><p>{clip.caption}</p><span className="reel-tag">{clip.tag}</span></div>
       <div className="reel-controls"><button onClick={() => toggleLike(clip.id)}><b>{likedClips.includes(clip.id) ? '♥' : '♡'}</b><small>{clip.likes + (likedClips.includes(clip.id) ? 1 : 0)}</small></button><button onClick={() => notify('Comments are available once community data is connected')}><b>◌</b><small>{clip.comments}</small></button><button onClick={() => notify('Share link copied')}><b>↗</b><small>Share</small></button></div>
     </section><aside className="feed-aside"><div className="feed-tip"><span>✦ CAMPUS PICK</span><h2>Good things are happening.</h2><p>Find your people offline, too. This week’s campus picks are right here.</p><button onClick={() => document.getElementById('campus-events')?.scrollIntoView({ behavior: 'smooth' })}>See events ↓</button></div><div className="feed-safety"><b>Keep it kind. Keep it real.</b><span>Report content that breaks our community rules.</span><button onClick={() => notify('Thanks. Reporting tools will be connected to moderation.')}>Community standards</button></div></aside></div>
-    <div className="feed-pager"><button aria-label="Previous clip" onClick={() => setClipIndex((clipIndex - 1 + clips.length) % clips.length)}>↑</button><span>{clipIndex + 1} / {clips.length}</span><button aria-label="Next clip" onClick={() => setClipIndex((clipIndex + 1) % clips.length)}>↓</button></div>
+    <div className="feed-pager"><button aria-label="Previous clip" onClick={() => setClipIndex((clipIndex - 1 + feedClips.length) % feedClips.length)}>↑</button><span>{clipIndex + 1} / {feedClips.length}</span><button aria-label="Next clip" onClick={() => setClipIndex((clipIndex + 1) % feedClips.length)}>↓</button></div>
     {highlightedEvent && <section className="feed-announcement"><span className="announcement-icon">✦</span><div><span className="community-kicker">CAMPUS ANNOUNCEMENT · {highlightedEvent.date}</span><b>{highlightedEvent.title}</b><small>{highlightedEvent.place}</small></div><button onClick={() => document.getElementById('campus-events')?.scrollIntoView({ behavior: 'smooth' })}>Details →</button></section>}
   </div>
 }
@@ -90,10 +96,12 @@ export default function Community({ page, account, setAccount, notify, session }
   const [title, setTitle] = useState('')
   const [details, setDetails] = useState('')
   const [videoFile, setVideoFile] = useState(null)
+  const [clipCategory, setClipCategory] = useState('Campus life')
   const [modMode, setModMode] = useState(false)
   const [boostEvent, setBoostEvent] = useState(false)
   const [profileRole, setProfileRole] = useState('student')
   const [demoModerator, setDemoModerator] = useState(false)
+  const [pendingReels, setPendingReels] = useState([])
   const notifyRef = useRef(notify)
   const userId = session?.user?.id
   const canModerate = supabase ? Boolean(session && ['moderator', 'admin'].includes(profileRole)) : demoModerator
@@ -107,7 +115,7 @@ export default function Community({ page, account, setAccount, notify, session }
     let active = true
     const loadCloud = async () => {
       const [reelResult, eventResult, profileResult] = await Promise.all([
-        supabase.from('reels').select('id,caption,video_path,university,profiles(display_name)').eq('moderation_status','approved').order('created_at',{ascending:false}).limit(30),
+        supabase.from('reels').select('id,caption,category,video_path,university,profiles(display_name)').eq('moderation_status','approved').order('created_at',{ascending:false}).limit(30),
         supabase.from('campus_events').select('id,title,venue,details,starts_at,promoted,is_announcement,moderation_status').in('moderation_status',['approved','pending']).order('created_at',{ascending:false}).limit(30),
         supabase.from('profiles').select('role').eq('id',userId).maybeSingle(),
       ])
@@ -115,7 +123,7 @@ export default function Community({ page, account, setAccount, notify, session }
       if (!reelResult.error) {
         const mapped = await Promise.all(reelResult.data.map(async (row) => {
           const { data } = await supabase.storage.from('campus-media').createSignedUrl(row.video_path,3600)
-          return { id:row.id,author:`${row.profiles?.display_name || 'Campus student'} · ${row.university || 'Your campus'}`,caption:row.caption,tag:'#campuslife',tone:'user',likes:0,comments:0,video:data?.signedUrl || '' }
+          return { id:row.id,author:`${row.profiles?.display_name || 'Campus student'} · ${row.university || 'Your campus'}`,caption:row.caption,category:row.category || 'Campus life',tag:'#campuslife',tone:'user',likes:0,comments:0,video:data?.signedUrl || '' }
         }))
         if (active) setClips(mapped)
       }
@@ -131,7 +139,28 @@ export default function Community({ page, account, setAccount, notify, session }
     }).subscribe()
     return () => { active = false; supabase.removeChannel(channel) }
   }, [userId])
-  const openComposer = (kind) => { setComposer(kind); setCaption(''); setTitle(''); setDetails(''); setVideoFile(null) }
+  useEffect(() => {
+    if (!supabase || !userId || !canModerate) return undefined
+    let active = true
+    const loadQueue = async () => {
+      const { data, error } = await supabase.from('reels').select('id,caption,category,video_path,university,profiles(display_name)').eq('moderation_status', 'pending').order('created_at', { ascending: true }).limit(25)
+      if (!active || error || !data) return
+      const mapped = await Promise.all(data.map(async (row) => {
+        const { data: media } = await supabase.storage.from('campus-media').createSignedUrl(row.video_path, 3600)
+        return { id: row.id, caption: row.caption, category: row.category, author: row.profiles?.display_name || row.university || 'Campus member', video: media?.signedUrl || '' }
+      }))
+      if (active) setPendingReels(mapped)
+    }
+    loadQueue()
+    return () => { active = false }
+  }, [userId, canModerate])
+  const reviewReel = async (reel, moderationStatus) => {
+    const { error } = await supabase.from('reels').update({ moderation_status: moderationStatus }).eq('id', reel.id)
+    if (error) { notify(error.message); return }
+    setPendingReels((current) => current.filter((item) => item.id !== reel.id))
+    notify(moderationStatus === 'approved' ? 'Reel approved and added to the For You feed.' : 'Reel rejected and removed from the queue.')
+  }
+  const openComposer = (kind) => { setComposer(kind); setCaption(''); setTitle(''); setDetails(''); setVideoFile(null); setClipCategory('Campus life') }
   const create = (kind) => { setModMode(kind === 'announcement'); setBoostEvent(false); openComposer(kind) }
   const publishClip = (event) => {
     event.preventDefault()
@@ -144,13 +173,13 @@ export default function Community({ page, account, setAccount, notify, session }
         const path = `${session.user.id}/${crypto.randomUUID()}-${videoFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`
         const upload = await supabase.storage.from('campus-media').upload(path,videoFile,{upsert:false,contentType:videoFile.type})
         if (upload.error) { notify(upload.error.message); return }
-        const result = await supabase.from('reels').insert({ user_id:session.user.id,caption:caption.trim(),video_path:path,moderation_status:'pending' })
+        const result = await supabase.from('reels').insert({ user_id:session.user.id,caption:caption.trim(),video_path:path,category:clipCategory,moderation_status:'pending' })
         if (result.error) { notify(result.error.message); return }
         setComposer(''); notify('Video submitted. It will join the feed after review.')
       })()
       return
     }
-    const nextClip = { id: `user-${Date.now()}`, author: 'Sarah N. · Makerere', caption: caption.trim() || 'A little moment from campus ✨', tag: '#campuslife', tone: 'user', likes: 0, comments: 0, video: videoFile ? URL.createObjectURL(videoFile) : '' }
+    const nextClip = { id: `user-${Date.now()}`, author: 'Sarah N. · Makerere', caption: caption.trim() || 'A little moment from campus ✨', tag: '#campuslife', category: clipCategory, tone: 'user', likes: 0, comments: 0, video: videoFile ? URL.createObjectURL(videoFile) : '' }
     const next = [nextClip, ...clips]
     setClips(next)
     window.localStorage.setItem('campus-pulse-clips', JSON.stringify(next.map(({ video: _video, ...clip }) => clip)))
@@ -176,10 +205,13 @@ export default function Community({ page, account, setAccount, notify, session }
   }
 
   return <>
-    {page === 'For You' && <Feed clips={clips} events={events} notify={notify} onCreate={() => create('post')} />}
+    {page === 'For You' && <><Feed clips={clips} events={events} notify={notify} onCreate={() => create('post')} />{canModerate && <section className="reel-review-queue"><div><span className="community-kicker">CAMPUS TRUST</span><h2>Reels waiting for review <small>{pendingReels.length}</small></h2><p>Review videos before they reach student feeds.</p></div>{pendingReels.length ? pendingReels.map((reel) => <article key={reel.id} className="reel-review-card"><video src={reel.video} controls playsInline /><div><b>{reel.author}</b><small>{reel.category} · {reel.caption}</small><span><button onClick={() => reviewReel(reel, 'rejected')}>Reject</button><button onClick={() => reviewReel(reel, 'approved')}>Approve</button></span></div></article>) : <div className="empty-feed">No videos are waiting for review.</div>}</section>}</>}
     {page === 'Events' && <Events events={events} setEvents={setEvents} notify={notify} canModerate={canModerate} session={session} onDemoModeratorToggle={() => { setDemoModerator((current) => !current); notify(demoModerator ? 'Moderator preview closed' : 'Moderator preview enabled for this demo only') }} onCreate={() => create(canModerate ? 'announcement' : 'event')} />}
     {page === 'Membership' && <Plans account={account} setAccount={setAccount} notify={notify} />}
-    {composer && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setComposer('') }}><form className="modal-card community-composer" onSubmit={composer === 'post' ? publishClip : publishEvent}><button type="button" className="modal-close" onClick={() => setComposer('')}>×</button><div className="modal-spark">{composer === 'post' ? '▶' : '✦'}</div><div className="eyebrow">{composer === 'post' ? 'CREATE FOR YOUR CAMPUS' : modMode ? 'MODERATOR ANNOUNCEMENT' : 'CAMPUS COMMUNITY'}</div><h2>{composer === 'post' ? 'Share a moment.' : modMode ? 'Post a campus announcement.' : 'Put your event out there.'}</h2><p>{composer === 'post' ? 'Short clips work best. Keep it kind, relevant, and yours.' : modMode ? 'Announcements are featured in Events and the For You feed, and trigger an in-app alert.' : 'Help your campus find your gathering.'}</p>{composer === 'post' ? <><label className="story-input-label">CAPTION<textarea value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="What’s happening on campus?" maxLength={220} /></label><label className="story-input-label">VIDEO CLIP <input type="file" accept="video/*" onChange={(event) => setVideoFile(event.target.files?.[0] || null)} /></label><small className="modal-footnote">Demo upload · Keep clips under 30 seconds and 50 MB when storage is connected.</small><button className="primary-button full-button" type="submit">Publish post ↗</button></> : <><label className="story-input-label">EVENT TITLE<input className="community-text-input" value={title} onChange={(event) => setTitle(event.target.value)} required placeholder="What are you hosting?" maxLength={90} /></label><label className="story-input-label">VENUE & DETAILS<textarea value={details} onChange={(event) => setDetails(event.target.value)} placeholder={'Venue\nA few details for students…'} /></label>{!modMode && (account.plans || []).includes('promoter') && <label className="story-input-label"><input type="checkbox" checked={boostEvent} onChange={(event) => setBoostEvent(event.target.checked)} /> FEATURE THIS EVENT <small>Included with your active Campus Promoter subscription</small></label>}{!modMode && !(account.plans || []).includes('promoter') && <small className="modal-footnote">Campus-wide event alerts and featured FYP placement require the Campus Promoter monthly add-on.</small>}<button className="primary-button full-button" type="submit">{modMode ? 'Publish announcement' : 'Post event'} ↗</button><small className="modal-footnote">{modMode ? 'Moderator preview only · server-side role checks required' : 'Student events appear after review. Moderator announcements alert the campus.'}</small></>}</form></div>}
+    {page === 'Live rooms' && <LiveRooms account={account} session={session} moderator={canModerate} notify={notify} onUpgrade={() => notify('Choose Pulse Plus in Membership to schedule or join live rooms.')} />}
+    {page === 'Marketplace' && <Marketplace type="Marketplace" session={session} notify={notify} moderator={canModerate} />}
+    {page === 'Hostels' && <Marketplace type="Hostels" session={session} notify={notify} moderator={canModerate} />}
+    {composer && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setComposer('') }}><form className="modal-card community-composer" onSubmit={composer === 'post' ? publishClip : publishEvent}><button type="button" className="modal-close" onClick={() => setComposer('')}>×</button><div className="modal-spark">{composer === 'post' ? '▶' : '✦'}</div><div className="eyebrow">{composer === 'post' ? 'CREATE FOR YOUR CAMPUS' : modMode ? 'MODERATOR ANNOUNCEMENT' : 'CAMPUS COMMUNITY'}</div><h2>{composer === 'post' ? 'Share a moment.' : modMode ? 'Post a campus announcement.' : 'Put your event out there.'}</h2><p>{composer === 'post' ? 'Short clips work best. Keep it kind, relevant, and yours.' : modMode ? 'Announcements are featured in Events and the For You feed, and trigger an in-app alert.' : 'Help your campus find your gathering.'}</p>{composer === 'post' ? <><label className="story-input-label">CATEGORY<select className="community-text-input" value={clipCategory} onChange={(event) => setClipCategory(event.target.value)}>{['Campus life','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <option key={item}>{item}</option>)}</select></label><label className="story-input-label">CAPTION<textarea value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="What’s happening on campus?" maxLength={220} /></label><label className="story-input-label">VIDEO CLIP <input type="file" accept="video/*" onChange={(event) => setVideoFile(event.target.files?.[0] || null)} /></label><small className="modal-footnote">Demo upload · Keep clips under 30 seconds and 50 MB when storage is connected.</small><button className="primary-button full-button" type="submit">Publish post ↗</button></> : <><label className="story-input-label">EVENT TITLE<input className="community-text-input" value={title} onChange={(event) => setTitle(event.target.value)} required placeholder="What are you hosting?" maxLength={90} /></label><label className="story-input-label">VENUE & DETAILS<textarea value={details} onChange={(event) => setDetails(event.target.value)} placeholder={'Venue\nA few details for students…'} /></label>{!modMode && (account.plans || []).includes('promoter') && <label className="story-input-label"><input type="checkbox" checked={boostEvent} onChange={(event) => setBoostEvent(event.target.checked)} /> FEATURE THIS EVENT <small>Included with your active Campus Promoter subscription</small></label>}{!modMode && !(account.plans || []).includes('promoter') && <small className="modal-footnote">Campus-wide event alerts and featured FYP placement require the Campus Promoter monthly add-on.</small>}<button className="primary-button full-button" type="submit">{modMode ? 'Publish announcement' : 'Post event'} ↗</button><small className="modal-footnote">{modMode ? 'Moderator preview only · server-side role checks required' : 'Student events appear after review. Moderator announcements alert the campus.'}</small></>}</form></div>}
   </>
 }
 
