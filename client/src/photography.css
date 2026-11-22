@@ -1,0 +1,93 @@
+/* Editorial campus photography from the Unsplash image CDN. */
+.person-cover {
+  height: 132px;
+  background-size: cover !important;
+  background-position: center 42% !important;
+}
+
+.person-cover .cover-noise { opacity: .1; }
+.person-card:nth-child(1) .person-cover {
+  background-image: linear-gradient(90deg, #31273a12, #31273a2b), url('https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=900&q=78');
+}
+.person-card:nth-child(2) .person-cover {
+  background-image: linear-gradient(90deg, #31273a12, #31273a2b), url('https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?auto=format&fit=crop&w=900&q=78');
+}
+.person-card:nth-child(3) .person-cover {
+  background-image: linear-gradient(90deg, #31273a12, #31273a2b), url('https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=900&q=78');
+}
+.person-card:nth-child(4) .person-cover {
+  background-image: linear-gradient(90deg, #31273a12, #31273a2b), url('https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?auto=format&fit=crop&w=900&q=78');
+}
+
+.reel-card { background: #211b27; }
+.reel-art {
+  background-position: center;
+  background-size: cover;
+}
+.reel-gold .reel-art {
+  background-image: linear-gradient(180deg, #211b2710 20%, #211b276b 100%), url('https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1000&q=82');
+}
+.reel-violet .reel-art {
+  background-image: linear-gradient(180deg, #211b2710 20%, #211b276b 100%), url('https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1000&q=82');
+}
+.reel-emoji { font-size: 62px; }
+.reel-deco { opacity: .55; }
+
+.event-card { isolation: isolate; }
+.event-card::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 0 auto;
+  width: 43%;
+  background-position: center;
+  background-size: cover;
+  mask-image: linear-gradient(90deg, transparent, #000 35%);
+  opacity: .58;
+}
+.event-card:nth-child(1)::before {
+  background-image: url('https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?auto=format&fit=crop&w=850&q=78');
+}
+.event-card:nth-child(2)::before {
+  background-image: url('https://images.unsplash.com/photo-1506157786151-b8491531f063?auto=format&fit=crop&w=850&q=78');
+}
+
+.market-image {
+  background-size: cover !important;
+  background-position: center !important;
+}
+.market-image > span { opacity: .08; }
+.marketplace-page .market-card:nth-child(1) .market-image {
+  background-image: linear-gradient(0deg, #2e243622, #2e243600 60%), url('https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=850&q=78') !important;
+}
+.marketplace-page .market-card:nth-child(2) .market-image {
+  background-image: linear-gradient(0deg, #2e243622, #2e243600 60%), url('https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=850&q=78') !important;
+}
+.marketplace-page .market-card:nth-child(3) .market-image {
+  background-image: linear-gradient(0deg, #2e243622, #2e243600 60%), url('https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=850&q=78') !important;
+}
+.hostels-page .market-card:nth-child(1) .market-image {
+  background-image: linear-gradient(0deg, #2e243622, #2e243600 60%), url('https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=850&q=78') !important;
+}
+.hostels-page .market-card:nth-child(2) .market-image {
+  background-image: linear-gradient(0deg, #2e243622, #2e243600 60%), url('https://images.unsplash.com/photo-1631049307264-da0ec9d70304?auto=format&fit=crop&w=850&q=78') !important;
+}
+
+.live-room-art {
+  background-position: center !important;
+  background-size: cover !important;
+}
+.live-room-art > span { opacity: .25; }
+.room-art-0 {
+  background-image: linear-gradient(0deg, #251b2966, #251b2908), url('https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=700&q=78') !important;
+}
+.room-art-1 {
+  background-image: linear-gradient(0deg, #251b2966, #251b2908), url('https://images.unsplash.com/photo-1506157786151-b8491531f063?auto=format&fit=crop&w=700&q=78') !important;
+}
+.room-art-2 {
+  background-image: linear-gradient(0deg, #251b2966, #251b2908), url('https://images.unsplash.com/photo-1523580846011-d3a5bc25702b?auto=format&fit=crop&w=700&q=78') !important;
+}
+
+@media (max-width: 780px) {
+  .person-cover { height: 105px; }
+}

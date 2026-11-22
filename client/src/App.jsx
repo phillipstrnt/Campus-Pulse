@@ -4,12 +4,22 @@ import AuthPanel from './AuthPanel'
 import Messaging from './Messaging'
 import { supabase } from './supabase'
 import './App.css'
+import './photography.css'
 
 const people = [
   { name: 'Amina K.', school: 'Makerere · Law', year: 'Year 3', vibe: 'Here for good conversations & coffee dates.', interests: ['Dating 18+', 'Drama & arts', 'Entertainment'], color: 'lilac', initials: 'AK', online: true },
   { name: 'Joel M.', school: 'Kyambogo · Design', year: 'Year 2', vibe: 'Design student. Football, music, late-night rolex.', interests: ['Sports', 'Entertainment'], color: 'peach', initials: 'JM', online: true },
   { name: 'Nadia S.', school: 'UCU · Business', year: 'Year 4', vibe: 'Let’s explore Kampala one brunch at a time ✨', interests: ['Drama & arts', 'Entertainment', 'Dating 18+'], color: 'mint', initials: 'NS', online: false },
   { name: 'Brian T.', school: 'Makerere · IT', year: 'Year 3', vibe: 'Tech, basketball & finding the best chapati.', interests: ['Science & tech', 'Sports'], color: 'blue', initials: 'BT', online: true },
+  { name: 'Zara A.', school: 'Makerere · Medicine', year: 'Year 2', vibe: 'Books, big ideas, and finding the best coffee.', interests: ['Science & tech', 'Entertainment'], color: 'peach', initials: 'ZA', online: true },
+  { name: 'Isaac O.', school: 'Kyambogo · Engineering', year: 'Year 3', vibe: 'Building things and cheering for the Cranes.', interests: ['Sports', 'Science & tech'], color: 'lilac', initials: 'IO', online: false },
+  { name: 'Grace N.', school: 'UCU · Journalism', year: 'Year 2', vibe: 'Stories, live music, and a little stage time.', interests: ['Drama & arts', 'Entertainment'], color: 'mint', initials: 'GN', online: true },
+  { name: 'Daniel K.', school: 'Makerere · Business', year: 'Year 4', vibe: 'Startup ideas, football, and good conversations.', interests: ['Sports', 'Science & tech'], color: 'blue', initials: 'DK', online: false },
+  { name: 'Ruth M.', school: 'MUBS · Marketing', year: 'Year 3', vibe: 'Creative campaigns and Kampala food spots.', interests: ['Entertainment', 'Drama & arts'], color: 'peach', initials: 'RM', online: true },
+  { name: 'Kevin S.', school: 'Makerere · Science', year: 'Year 1', vibe: 'Solar energy experiments and weekend games.', interests: ['Science & tech', 'Sports'], color: 'lilac', initials: 'KS', online: false },
+  { name: 'Esther B.', school: 'Victoria University · Arts', year: 'Year 2', vibe: 'Rehearsals, poetry, and discovering new music.', interests: ['Drama & arts', 'Entertainment'], color: 'mint', initials: 'EB', online: true },
+  { name: 'Peter L.', school: 'Kyambogo · Sports Science', year: 'Year 4', vibe: 'Training, teamwork, and match-day energy.', interests: ['Sports'], color: 'blue', initials: 'PL', online: false },
+  { name: 'Mariam W.', school: 'UCU · Law', year: 'Year 3', vibe: 'Good books, thoughtful chats, and new places.', interests: ['Dating 18+', 'Drama & arts'], color: 'peach', initials: 'MW', online: true },
 ]
 const stories = [
   { name: 'Your story', initials: '+', color: 'blank' },
@@ -70,6 +80,14 @@ function App() {
   const [liked, setLiked] = useState([])
   const [search, setSearch] = useState('')
   const [selectedPerson, setSelectedPerson] = useState(people[0])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notifications, setNotifications] = useState(() => {
+    try { return JSON.parse(window.localStorage.getItem('campus-pulse-notifications')) || [
+      { id: 'welcome', title: 'Welcome to Campus Pulse', detail: 'Explore your campus and meet your people.', read: false },
+      { id: 'event', title: 'Campus Creators Meetup', detail: 'A campus pick is happening Friday at 5:30 PM.', read: false },
+      { id: 'safety', title: 'Keep connections safe', detail: 'Meet in public places and report anything concerning.', read: true },
+    ] } catch { return [] }
+  })
 
   useEffect(() => { window.localStorage.setItem('campus-pulse-account', JSON.stringify(account)) }, [account])
   useEffect(() => {
@@ -91,7 +109,19 @@ function App() {
     return () => { active = false; supabase.removeChannel(channel) }
   }, [session?.user?.id])
 
-  const notify = useCallback((text) => { setToast(text); window.setTimeout(() => setToast(''), 2600) }, [])
+  const notify = useCallback((text) => {
+    setToast(text)
+    setNotifications((current) => [{ id: `notice-${Date.now()}`, title: 'Campus Pulse update', detail: text, read: false }, ...current].slice(0, 30))
+    window.setTimeout(() => setToast(''), 2600)
+  }, [])
+  useEffect(() => { window.localStorage.setItem('campus-pulse-notifications', JSON.stringify(notifications)) }, [notifications])
+  const saveProfile = async () => {
+    if (supabase && session) {
+      const { error } = await supabase.from('profiles').update({ display_name: account.displayName || 'Campus member', bio: account.bio || '' }).eq('id', session.user.id)
+      if (error) { notify(error.message); return }
+    }
+    setModal(''); notify('Profile saved.')
+  }
   const discoveryPeople = filter === 'Nearby' && nearbyPeople ? nearbyPeople : people
   const filteredPeople = discoveryPeople.filter((person) => `${person.name} ${person.school} ${person.vibe} ${(person.interests || []).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (selectedInterest === 'All interests' || person.interests?.includes(selectedInterest)) && (filter !== 'Nearby' || nearbyPeople || person.school.startsWith('Makerere')) && (filter !== 'My school' || person.school.startsWith('Makerere')))
   const toggleLike = (name) => setLiked((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name])
@@ -126,11 +156,11 @@ function App() {
         <div className="campus-switch"><span className="campus-icon">M</span><span><b>Makerere University</b><small>Kampala, Uganda</small></span><span className="chevron">⌄</span></div>
         <div className="side-label">YOUR SPACE</div>
         <nav>{navItems.map(([icon, label]) => <button key={label} className={`nav-item ${active === label ? 'selected' : ''}`} onClick={() => { setActive(label); if (label === 'Messages' && !isPlus) setModal('upgrade') }}><span className="nav-icon">{icon}</span>{label}{label === 'Messages' && <span className="nav-count">2</span>}{label === 'Live rooms' && <span className="live-dot" />}</button>)}</nav>
-        <div className="side-bottom"><div className="upgrade-card"><div className="upgrade-spark">✦</div><b>Make your move.</b><p>Unlock chats & your next campus connection.</p><button onClick={() => setModal('upgrade')}>Explore Pulse Plus <span>→</span></button></div><button className="profile-mini" onClick={() => setModal('verification')}><span className="avatar avatar-me">S</span><span><b>Sarah N.</b><small>{account.verification === 'verified' ? '✓ Verified student' : isPlus ? 'Pulse Plus member' : 'Free member'}</small></span><span className="more">···</span></button></div>
+        <div className="side-bottom"><div className="upgrade-card"><div className="upgrade-spark">✦</div><b>Make your move.</b><p>Unlock chats & your next campus connection.</p><button onClick={() => setModal('upgrade')}>Explore Pulse Plus <span>→</span></button></div><button className="profile-mini" onClick={() => setModal('profile')}><span className="avatar avatar-me">{(account.displayName || 'Sarah N.').slice(0, 1).toUpperCase()}</span><span><b>{account.displayName || 'Sarah N.'}</b><small>{account.verification === 'verified' ? '✓ Verified student' : isPlus ? 'Pulse Plus member' : 'Free member'}</small></span><span className="more">Edit</span></button></div>
       </aside>
 
       <main className="main-content">
-        <header className="topbar"><div className="mobile-brand">campus<span>pulse</span></div><div className="breadcrumb">Your campus <span>/</span> <b>{active}</b></div><div className="top-actions"><button className="icon-button" aria-label="Notifications" onClick={() => notify('You’re all caught up!')}>♧<i /></button><button className="top-avatar" onClick={() => setModal('auth')}>{session?.user?.email?.slice(0, 1).toUpperCase() || 'S'}</button></div></header>
+        <header className="topbar"><div className="mobile-brand">campus<span>pulse</span></div><div className="breadcrumb">Your campus <span>/</span> <b>{active}</b></div><div className="top-actions"><button className="icon-button notification-trigger" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>♧{notifications.some((item) => !item.read) && <i />}</button><button className="top-avatar" aria-label="Edit profile" onClick={() => setModal('profile')}>{session?.user?.email?.slice(0, 1).toUpperCase() || (account.displayName || 'S').slice(0, 1).toUpperCase()}</button>{notificationsOpen && <section className="notification-popover"><header><b>Notifications</b><button onClick={() => setNotifications((items) => items.map((item) => ({ ...item, read: true })))}>Mark all read</button></header>{notifications.map((item) => <article className={item.read ? '' : 'unread'} key={item.id}><b>{item.title}</b><p>{item.detail}</p></article>)}{!notifications.length && <p className="notification-empty">You’re all caught up.</p>}</section>}</div></header>
 
         {active === 'Discover' && <div className="page-wrap">
           <section className="welcome-row"><div><div className="eyebrow"><span className="pulse-dot" /> YOUR CAMPUS, IN THE MOMENT</div><h1>Find your <em>people.</em></h1><p className="intro">Good energy is closer than you think.</p></div><button className="outline-button" onClick={() => setModal('safety')}>♧ <span>Community guidelines</span></button></section>
@@ -150,6 +180,7 @@ function App() {
         {(active === 'Likes') && <div className="page-wrap"><section className="page-title"><div className="eyebrow">A LITTLE EXTRA SPARK</div><h1>Your <em>likes.</em></h1><p className="intro">People you’ve been curious about.</p></section>{liked.length ? <div className="people-grid">{people.filter((person) => liked.includes(person.name)).map((person) => <article className="person-card" key={person.name}><div className={`person-cover cover-${person.color}`}><span className="avatar profile-avatar avatar-lilac">{person.initials}</span></div><div className="person-info"><h3>{person.name}</h3><p className="school-line">{person.school} · {person.year}</p><div className="person-actions"><button className="chat-button" onClick={() => openChat(person)}>Message ↗</button></div></div></article>)}</div> : <div className="locked-panel"><span className="lock-icon">♡</span><h2>Make a little room for a spark.</h2><p>Tap the heart on someone’s profile to keep them here.</p><button className="primary-button" onClick={() => setActive('Discover')}>Discover people →</button></div>}</div>}
       </main>
 
+      {modal === 'profile' && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal('') }}><form className="modal-card profile-editor" onSubmit={(event) => { event.preventDefault(); saveProfile() }}><button type="button" className="modal-close" onClick={() => setModal('')}>×</button><div className="modal-spark">✎</div><div className="eyebrow">YOUR CAMPUS IDENTITY</div><h2>Edit your profile.</h2><p>Share a little about yourself. Keep private details private.</p><label className="story-input-label">DISPLAY NAME<input className="community-text-input" value={account.displayName || (session?.user?.user_metadata?.display_name || 'Sarah N.')} onChange={(event) => setAccount((current) => ({ ...current, displayName: event.target.value.slice(0, 60) }))} maxLength={60} required /></label><label className="story-input-label">BIO<textarea className="profile-bio-input" value={account.bio || ''} onChange={(event) => setAccount((current) => ({ ...current, bio: event.target.value.slice(0, 240) }))} maxLength={240} placeholder="What are you into?" /></label><small className="modal-footnote">{session ? 'Changes sync to your account.' : 'Demo profile is saved in this browser.'}</small><button className="primary-button full-button" type="submit">Save profile</button><button type="button" className="demo-link" onClick={() => { setModal('auth') }}>{session ? 'Account settings' : 'Sign in or create an account'}</button></form></div>}
       {modal === 'auth' && <AuthPanel session={session} onClose={() => setModal('')} notify={notify} />}
       {modal && modal !== 'auth' && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal('') }}><div className="modal-card"><button className="modal-close" onClick={() => setModal('')}>×</button>{modal === 'upgrade' && <><div className="modal-spark">✦</div><div className="eyebrow">YOUR CAMPUS, CLOSER</div><h2>Make your move.</h2><p>Good connections deserve a way to keep going. Unlock the full Campus Pulse experience.</p><div className="plan-card"><span className="plan-badge">PULSE PLUS</span><b>UGX 9,900 <small>/ month</small></b><ul><li>✓ Message people you vibe with</li><li>✓ Join live rooms & video calls</li><li>✓ See who likes you</li><li>✓ Meet more of your campus</li></ul></div><button className="primary-button full-button" onClick={() => { setAccount((current) => ({ ...current, plus: true, plan: 'plus', plans: [...new Set([...(current.plans || []), 'plus'])] })); setModal(''); notify('Demo membership enabled. Connect a payment gateway to collect payments.') }}>Continue to payment <span>→</span></button><small className="modal-footnote">Demo only · no payment will be charged</small><button className="demo-link" onClick={() => { setAccount((current) => ({ ...current, plus: true, plan: 'plus', plans: [...new Set([...(current.plans || []), 'plus'])] })); setModal(''); notify('Pulse Plus demo enabled') }}>Preview as a Plus member</button></>}{modal === 'verification' && <VerificationModal account={account} setAccount={setAccount} isPlus={isPlus} onUpgrade={() => setModal('upgrade')} notify={notify} />}{modal === 'safety' && <><div className="modal-spark">♧</div><div className="eyebrow">LOOK OUT FOR EACH OTHER</div><h2>Good energy. Real respect.</h2><p>Campus Pulse is for university students aged 18 and over. Be kind, meet in public places, and trust your instincts.</p><div className="safety-list"><span>✓ <b>Keep personal details private</b><small>Share your number only when you feel ready.</small></span><span>✓ <b>Meet in public first</b><small>Tell a friend where you’re going.</small></span><span>✓ <b>Block or report anytime</b><small>We take your safety seriously.</small></span></div><button className="primary-button full-button" onClick={() => setModal('')}>Got it</button></>}{modal === 'story' && <><div className="modal-spark">◉</div><div className="eyebrow">SHARE A LITTLE MOMENT</div><h2>Your story, your people.</h2><p>Share a photo or quick thought with your campus. It disappears after 24 hours.</p><label className="story-input-label">ADD A CAPTION<textarea placeholder="What’s happening?" /></label><button className="primary-button full-button" onClick={() => { setModal(''); notify('Story posting will be available when media uploads are connected.') }}>Share story <span>→</span></button><small className="modal-footnote">Story uploads need a media service before launch</small></>}</div></div>}
       {toast && <div className="toast">✦ &nbsp;{toast}</div>}

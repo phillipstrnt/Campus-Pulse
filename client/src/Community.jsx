@@ -18,6 +18,7 @@ const load = (key, fallback) => { try { return JSON.parse(window.localStorage.ge
 
 function Feed({ clips, events, notify, onCreate }) {
   const [clipIndex, setClipIndex] = useState(0)
+  const touchStartY = useRef(0)
   const [likedClips, setLikedClips] = useState(() => load('campus-pulse-clip-likes', []))
   const [interest, setInterest] = useState('For you')
   const feedClips = interest === 'For you' ? clips : clips.filter((item) => item.category === interest)
@@ -32,7 +33,7 @@ function Feed({ clips, events, notify, onCreate }) {
   return <div className="community-page">
     <div className="community-heading"><div><span className="community-kicker">CAMPUS, ON REPEAT</span><h1>Your <em>For You</em> feed</h1><p>Quick clips, campus happenings, and people worth meeting.</p></div><button className="community-primary" onClick={onCreate}>＋ Create post</button></div>
     <div className="feed-tabs">{['For you','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <button key={item} className={interest === item ? 'chosen' : ''} onClick={() => { setInterest(item); setClipIndex(0) }}>{item}</button>)}<span className="feed-note">Adult dating · no nudity</span></div>
-    <div className="feed-layout"><section className={`reel-card reel-${clip.tone}`} key={clip.id}>
+    <div className="feed-layout"><section className={`reel-card reel-${clip.tone}`} key={clip.id} tabIndex={0} aria-label="Campus reel. Scroll or swipe vertically for the next clip." onWheel={(event) => { if (Math.abs(event.deltaY) > 24) setClipIndex((index) => (index + (event.deltaY > 0 ? 1 : -1) + feedClips.length) % feedClips.length) }} onTouchStart={(event) => { touchStartY.current = event.touches[0].clientY }} onTouchEnd={(event) => { const delta = touchStartY.current - event.changedTouches[0].clientY; if (Math.abs(delta) > 45) setClipIndex((index) => (index + (delta > 0 ? 1 : -1) + feedClips.length) % feedClips.length) }}>
       {clip.video ? <video className="reel-video" src={clip.video} controls playsInline /> : <div className="reel-art"><span className="reel-deco deco-a">✳</span><span className="reel-deco deco-b">✦</span><span className="reel-emoji">{clip.tone === 'gold' ? '🌯' : clip.tone === 'user' ? '🎬' : '🎧'}</span><span className="reel-sound">♫ &nbsp; Original audio</span></div>}
       <div className="reel-copy"><span className="reel-author">{clip.author}</span><p>{clip.caption}</p><span className="reel-tag">{clip.tag}</span></div>
       <div className="reel-controls"><button onClick={() => toggleLike(clip.id)}><b>{likedClips.includes(clip.id) ? '♥' : '♡'}</b><small>{clip.likes + (likedClips.includes(clip.id) ? 1 : 0)}</small></button><button onClick={() => notify('Comments are available once community data is connected')}><b>◌</b><small>{clip.comments}</small></button><button onClick={() => notify('Share link copied')}><b>↗</b><small>Share</small></button></div>
