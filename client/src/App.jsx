@@ -3,6 +3,7 @@ import Community from './Community'
 import AuthPanel from './AuthPanel'
 import Messaging from './Messaging'
 import { supabase } from './supabase'
+import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 import { Bell, BookOpenText, CalendarDays, Clapperboard, Compass, Heart, House, MessageCircle, Radio, ShieldCheck, ShoppingBag, Sparkles } from 'lucide-react'
 import './App.css'
 import './photography.css'
@@ -31,6 +32,7 @@ const stories = [
 ]
 const navItems = [['Discover', Compass], ['For You', Clapperboard], ['Events', CalendarDays], ['Messages', MessageCircle], ['Live rooms', Radio], ['Likes', Heart], ['Stories', BookOpenText], ['Marketplace', ShoppingBag], ['Hostels', House], ['Membership', Sparkles]]
 const mobileNavItems = navItems
+const PREVIEW_SESSION_KEY = 'campus-pulse-preview-session'
 
 function VerificationModal({ account, setAccount, isPlus, onUpgrade, notify }) {
   const [documentChosen, setDocumentChosen] = useState(false)
@@ -70,10 +72,20 @@ function App() {
     return { joinedAt: new Date().toISOString(), activeDays: 1, lastActiveDate: today, plus: false, verification: 'not_started' }
   })
   const [active, setActive] = useState('Discover')
-  const [session, setSession] = useState(null)
+  const [session, setSession] = useState(() => {
+    if (supabase) return null
+    try { return JSON.parse(window.localStorage.getItem(PREVIEW_SESSION_KEY)) || null } catch { return null }
+  })
   const [profilePhotoFile, setProfilePhotoFile] = useState(null)
   const [profilePhotoUrl, setProfilePhotoUrl] = useState('')
   const [profileBusy, setProfileBusy] = useState(false)
+  const [campusStories, setCampusStories] = useState(() => {
+    try { return (JSON.parse(window.localStorage.getItem('campus-pulse-stories')) || []).filter((story) => story.expiresAt > Date.now()) } catch { return [] }
+  })
+  const [storyCaption, setStoryCaption] = useState('')
+  const [storyFile, setStoryFile] = useState(null)
+  const [storyBusy, setStoryBusy] = useState(false)
+  const [viewingStory, setViewingStory] = useState(null)
   const [filter, setFilter] = useState('For you')
   const [selectedInterest, setSelectedInterest] = useState('All interests')
   const [nearbyPeople, setNearbyPeople] = useState(null)
@@ -125,6 +137,33 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
     return () => subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    let active = true
+    Promise.all(campusStories.map(async (story) => {
+      if (!story.mediaKey || story.mediaUrl) return story
+      try { return { ...story, mediaUrl: await getLocalMediaUrl(story.mediaKey) } } catch { return story }
+    })).then((items) => { if (active && items.some((item, index) => item !== campusStories[index])) setCampusStories(items) })
+    return () => { active = false }
+  }, [campusStories])
+  useEffect(() => {
+    window.localStorage.setItem('campus-pulse-stories', JSON.stringify(campusStories.map(({ mediaUrl: _mediaUrl, ...story }) => story)))
+  }, [campusStories])
+
+  useEffect(() => {
+    if (!supabase || !session?.user?.id) return undefined
+    let active = true
+    supabase.from('campus_stories').select('id,author_id,caption,media_path,created_at,expires_at,profiles(username,display_name)').gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(50).then(async ({ data, error }) => {
+      if (!active) return
+      if (error) { notify(error.message); return }
+      const items = await Promise.all((data || []).map(async (row) => {
+        const { data: media } = row.media_path ? await supabase.storage.from('campus-media').createSignedUrl(row.media_path, 3600) : { data: null }
+        return { id: row.id, author: row.profiles?.username ? `@${row.profiles.username}` : row.profiles?.display_name || 'Campus member', caption: row.caption, mediaUrl: media?.signedUrl || '', mediaType: /\.(mp4|webm)$/i.test(row.media_path || '') ? 'video' : 'image', expiresAt: new Date(row.expires_at).getTime() }
+      }))
+      if (active) setCampusStories(items)
+    })
+    return () => { active = false }
+  }, [session?.user?.id, notify])
 
   useEffect(() => {
     if (!supabase || !session?.user?.id) return undefined
@@ -199,11 +238,54 @@ function App() {
       const photo = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(profilePhotoFile) })
       setAccount((current) => ({ ...current, profilePhoto: photo }))
     }
+    if (!supabase && session?.user?.app_metadata?.provider === 'local-preview') {
+      const users = JSON.parse(window.localStorage.getItem('campus-pulse-preview-users') || '[]')
+      if (users.some((user) => user.id !== session.user.id && user.username === username)) { notify('That username is already taken in this browser.'); return }
+      const updatedUsers = users.map((user) => user.id === session.user.id ? { ...user, displayName: account.displayName || user.displayName, username, bio: account.bio || '' } : user)
+      window.localStorage.setItem('campus-pulse-preview-users', JSON.stringify(updatedUsers))
+      const updatedSession = { ...session, user: { ...session.user, user_metadata: { ...session.user.user_metadata, display_name: account.displayName || session.user.user_metadata.display_name, username } } }
+      window.localStorage.setItem(PREVIEW_SESSION_KEY, JSON.stringify(updatedSession)); setSession(updatedSession)
+    }
     setProfilePhotoFile(null)
     setModal(''); notify('Profile saved.')
     } finally { setProfileBusy(false) }
   }
-  const discoveryPeople = filter === 'Nearby' && nearbyPeople ? nearbyPeople : (session ? cloudPeople : people)
+  const publishStory = async (event) => {
+    event.preventDefault()
+    if (!storyCaption.trim() && !storyFile) { notify('Add a caption or choose a photo/video first.'); return }
+    if (storyFile && (!['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'].includes(storyFile.type) || storyFile.size > 25 * 1024 * 1024)) { notify('Stories need a JPG, PNG, WebP, MP4, or WebM file under 25 MB.'); return }
+    if (supabase && !session) { notify('Sign in before publishing a story.'); return }
+    setStoryBusy(true)
+    try {
+      const author = account.username ? `@${account.username}` : account.displayName || 'You'
+      if (supabase && session) {
+        let mediaPath = null
+        if (storyFile) {
+          const extension = storyFile.name.split('.').pop().replace(/[^a-z0-9]/gi, '').toLowerCase() || (storyFile.type.startsWith('video/') ? 'mp4' : 'jpg')
+          mediaPath = `${session.user.id}/story-${crypto.randomUUID()}.${extension}`
+          const { error: uploadError } = await supabase.storage.from('campus-media').upload(mediaPath, storyFile, { upsert: false, contentType: storyFile.type })
+          if (uploadError) { notify(uploadError.message); return }
+        }
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        const { data, error } = await supabase.from('campus_stories').insert({ author_id: session.user.id, caption: storyCaption.trim(), media_path: mediaPath, expires_at: expiresAt }).select('id').single()
+        if (error) { notify(`Story could not be saved. Apply migration 20261122000600_campus_stories.sql. ${error.message}`); return }
+        const { data: media } = mediaPath ? await supabase.storage.from('campus-media').createSignedUrl(mediaPath, 3600) : { data: null }
+        setCampusStories((current) => [{ id: data.id, author, caption: storyCaption.trim(), mediaUrl: media?.signedUrl || '', mediaType: storyFile?.type.startsWith('video/') ? 'video' : 'image', expiresAt: Date.now() + 86400000 }, ...current])
+      } else {
+        let mediaKey = ''
+        let mediaUrl = ''
+        if (storyFile) {
+          try { mediaKey = await saveLocalMedia(storyFile); mediaUrl = URL.createObjectURL(storyFile) }
+          catch { notify('This browser could not save your story media. Check storage space and try a smaller file.'); return }
+        }
+        const story = { id: `story-${crypto.randomUUID()}`, author, caption: storyCaption.trim(), mediaKey, mediaType: storyFile?.type.startsWith('video/') ? 'video' : 'image', mediaUrl, expiresAt: Date.now() + 86400000 }
+        setCampusStories((current) => [story, ...current.filter((item) => item.expiresAt > Date.now())])
+      }
+      setStoryCaption(''); setStoryFile(null); setModal(''); notify('Your story is saved and will expire in 24 hours.')
+    } finally { setStoryBusy(false) }
+  }
+  const openStory = (story) => setViewingStory(story)
+  const discoveryPeople = filter === 'Nearby' && nearbyPeople ? nearbyPeople : (supabase && session ? cloudPeople : people)
   const filteredPeople = discoveryPeople.filter((person) => `${person.name} ${person.school} ${person.vibe} ${(person.interests || []).join(' ')}`.toLowerCase().includes(search.toLowerCase()) && (selectedInterest === 'All interests' || person.interests?.includes(selectedInterest)) && (filter !== 'Nearby' || nearbyPeople || person.school.startsWith('Makerere')) && (filter !== 'My school' || person.school.startsWith('Makerere')))
   const toggleLike = (name) => setLiked((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name])
   const toggleFollow = async (person) => {
@@ -259,7 +341,7 @@ function App() {
 
         {active === 'Discover' && <div className="page-wrap">
           <section className="welcome-row"><div><div className="eyebrow"><span className="pulse-dot" /> YOUR CAMPUS, IN THE MOMENT</div><h1>Find your <em>people.</em></h1><p className="intro">Good energy is closer than you think.</p></div><button className="outline-button" onClick={() => setModal('safety')}><ShieldCheck size={17} /> <span>Community guidelines</span></button></section>
-          <section className="story-section"><div className="section-heading"><div><h2>Campus stories <span className="live-pill">24H</span></h2><p>Little moments, gone tomorrow.</p></div><button className="text-button" onClick={() => { setActive('Stories'); notify('You’re all caught up on stories') }}>See all →</button></div><div className="story-row">{stories.map((story, index) => <button className="story-item" key={story.name} onClick={() => index === 0 ? setModal('story') : notify(`${story.name}’s story is playing`)}><span className={`story-ring ${story.fresh ? 'fresh' : ''}`}><span className={`avatar story-avatar avatar-${story.color}`}>{story.initials}</span></span><span>{story.name}</span></button>)}</div></section>
+          <section className="story-section"><div className="section-heading"><div><h2>Campus stories <span className="live-pill">24H</span></h2><p>Little moments, gone tomorrow.</p></div><button className="text-button" onClick={() => setActive('Stories')}>See all →</button></div><div className="story-row"><button className="story-item" onClick={() => { setStoryCaption(''); setStoryFile(null); setModal('story') }}><span className="story-ring"><span className="avatar story-avatar avatar-blank">＋</span></span><span>Your story</span></button>{campusStories.map((story) => <button className="story-item" key={story.id} onClick={() => openStory(story)}><span className="story-ring fresh"><span className="avatar story-avatar avatar-lilac">{story.mediaUrl && story.mediaType === 'image' ? <img src={story.mediaUrl} alt="" /> : story.author.slice(0, 2).toUpperCase()}</span></span><span>{story.author}</span></button>)}{stories.slice(1).map((story) => <button className="story-item" key={story.name} onClick={() => openStory({ author: story.name, caption: `${story.name} shared a campus moment.`, mediaUrl: '', mediaType: 'image' })}><span className={`story-ring ${story.fresh ? 'fresh' : ''}`}><span className={`avatar story-avatar avatar-${story.color}`}>{story.initials}</span></span><span>{story.name}</span></button>)}</div></section>
           <section className="interest-section"><div><h2>Find your corner</h2><p>Explore what your campus is into.</p></div><div className="interest-chips">{['All interests','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <button key={item} className={selectedInterest === item ? 'active' : ''} onClick={() => setSelectedInterest(item)}>{item}</button>)}</div><small>Dating is for adults 18+ only. Nudity and explicit sexual content are not allowed.</small></section><section className="people-section"><div className="section-heading people-heading"><div><h2>People around you <span className="member-tag">{filteredPeople.length} students</span></h2><p>Real students. Real connections. Your pace.</p></div><div className="search-box"><span>⌕</span><input placeholder="Search your campus" value={search} onChange={(event) => setSearch(event.target.value)} /><kbd>⌘ K</kbd></div></div><div className="filter-row">{['For you', 'Nearby', 'New here', 'My school'].map((item) => <button key={item} className={`filter-chip ${filter === item ? 'active' : ''}`} onClick={() => setDiscoveryFilter(item)}>{item === 'Nearby' ? 'Nearby · 5 km' : item}</button>)}<button className="filter-control" onClick={() => notify('Filters: distance, year & interests')}>☷ <span>Filters</span></button><span className="filter-note">{filter === 'Nearby' ? (nearbyPeople ? 'Approximate location · opted-in profiles only' : 'Same-campus preview · nearby location is opt-in') : session ? 'Members who have joined Campus Pulse' : 'Demo campus profiles'}</span></div><div className="people-grid">{filteredPeople.map((person, index) => { const key = person.id || person.name; const follows = following.includes(key); const followsBack = !session || followedBy.includes(key); return <article className="person-card" key={key}><div className={`person-cover cover-${person.color}`}><span className="cover-noise">✳</span><span className="campus-chip">{person.school.split(' · ')[0]}</span><button className={`like-button ${liked.includes(person.name) ? 'is-liked' : ''}`} aria-label={`Like ${person.name}`} onClick={() => toggleLike(person.name)}>{liked.includes(person.name) ? '♥' : '♡'}</button><span className={`avatar profile-avatar avatar-${person.color}`}>{person.photo ? <img src={person.photo} alt="" /> : person.initials}</span></div><div className="person-info"><div className="person-name-row"><h3>{person.username ? `@${person.username}` : person.name}{person.verified && <span className="verified-badge" title="Verified account" aria-label="Verified account">✦</span>}</h3>{person.online && <span className="online-indicator">● online</span>}</div><p className="school-line">{person.school} <span>·</span> {person.year}</p><p className="person-bio">{person.vibe}</p><div className="profile-interest-tags">{(person.interests || []).slice(0, 2).map((interest) => <span key={interest}>{interest}</span>)}</div><div className="person-actions"><button className="wave-button" onClick={() => toggleFollow(person)}>{follows ? '✓ Following' : '＋ Follow'}</button><button className="chat-button" disabled={!followsBack} title={followsBack ? 'Open a conversation' : 'You can message after they follow you back'} onClick={() => openChat(person)}>{followsBack ? 'Message ↗' : 'Follow back to message'}</button></div></div>{index === 0 && <span className="match-label">✦ GREAT VIBE</span>}</article> })}</div>{filteredPeople.length === 0 && <div className="empty-state">No students match “{search}”. Try another name or interest.</div>}</section>
           <section className="bottom-banner"><span className="banner-icon">✦</span><div><b>Good things start with hello.</b><span>Join a live room and meet your campus, together.</span></div><button onClick={() => setActive('Live rooms')}>Explore live rooms <span>→</span></button><div className="banner-orbit orbit-one" /><div className="banner-orbit orbit-two" /></section>
           <footer className="page-footer"><span>© 2026 Campus Pulse</span><span><button onClick={() => setModal('safety')}>Stay safe</button><button onClick={() => setModal('safety')}>Community guidelines</button><button onClick={() => notify('Privacy settings are coming soon')}>Privacy</button></span><span>Made for campus life in Uganda <b>♥</b></span></footer>
@@ -270,14 +352,15 @@ function App() {
 
         {active === 'Live rooms' && <Community page="Live rooms" account={betaAccount} notify={notify} session={session} onMessageAuthor={openChat} />}
 
-        {active === 'Stories' && <div className="page-wrap"><section className="page-title"><div className="eyebrow">THE CAMPUS, UNFILTERED</div><h1>Stories <em>in the moment.</em></h1><p className="intro">Little moments from your people. Here for 24 hours.</p></section><div className="stories-grid">{stories.slice(1).map((story, i) => <button key={story.name} className={`story-tile tile-${story.color}`} onClick={() => notify(`${story.name}’s story is playing`)}><span className="avatar">{story.initials}</span><b>{story.name}’s story</b><small>{['2 min ago', '18 min ago', '1 hour ago', '2 hours ago'][i]}</small><span className="play-story">▶</span></button>)}<button className="story-tile add-story" onClick={() => setModal('story')}><span>＋</span><b>Share a moment</b><small>It disappears in 24 hours</small></button></div></div>}
+        {active === 'Stories' && <div className="page-wrap"><section className="page-title"><div className="eyebrow">THE CAMPUS, UNFILTERED</div><h1>Stories <em>in the moment.</em></h1><p className="intro">Little moments from your people. Here for 24 hours.</p><button className="primary-button" onClick={() => { setStoryCaption(''); setStoryFile(null); setModal('story') }}>＋ Share a moment</button></section><div className="stories-grid">{campusStories.map((story) => <button key={story.id} className="story-tile tile-lilac" onClick={() => openStory(story)}>{story.mediaUrl && story.mediaType === 'image' ? <img className="story-tile-image" src={story.mediaUrl} alt="" /> : <span className="avatar">{story.author.slice(0, 2).toUpperCase()}</span>}<b>{story.author}’s story</b><small>{story.caption || 'A campus moment · 24 hours'}</small><span className="play-story">▶</span></button>)}{stories.slice(1).map((story) => <button key={story.name} className={`story-tile tile-${story.color}`} onClick={() => openStory({ author: story.name, caption: `${story.name} shared a campus moment.`, mediaUrl: '', mediaType: 'image' })}><span className="avatar">{story.initials}</span><b>{story.name}’s story</b><small>Campus moment · 24 hours</small><span className="play-story">▶</span></button>)}<button className="story-tile add-story" onClick={() => { setStoryCaption(''); setStoryFile(null); setModal('story') }}><span>＋</span><b>Share a moment</b><small>It disappears in 24 hours</small></button></div></div>}
 
         {(active === 'Likes') && <div className="page-wrap"><section className="page-title"><div className="eyebrow">A LITTLE EXTRA SPARK</div><h1>Your <em>likes.</em></h1><p className="intro">People you’ve been curious about.</p></section>{liked.length ? <div className="people-grid">{people.filter((person) => liked.includes(person.name)).map((person) => <article className="person-card" key={person.name}><div className={`person-cover cover-${person.color}`}><span className="avatar profile-avatar avatar-lilac">{person.initials}</span></div><div className="person-info"><h3>{person.name}</h3><p className="school-line">{person.school} · {person.year}</p><div className="person-actions"><button className="chat-button" onClick={() => openChat(person)}>Message ↗</button></div></div></article>)}</div> : <div className="locked-panel"><span className="lock-icon">♡</span><h2>Make a little room for a spark.</h2><p>Tap the heart on someone’s profile to keep them here.</p><button className="primary-button" onClick={() => setActive('Discover')}>Discover people →</button></div>}</div>}
       </main>
 
       {modal === 'profile' && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal('') }}><form className="modal-card profile-editor" onSubmit={(event) => { event.preventDefault(); saveProfile() }}><button type="button" className="modal-close" onClick={() => setModal('')}>×</button><div className="modal-spark">✎</div><div className="eyebrow">YOUR CAMPUS IDENTITY</div><h2>Edit your profile.</h2><p>Use a username instead of exposing your student email in public profiles.</p><label className="story-input-label">PROFILE PHOTO<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setProfilePhotoFile(event.target.files?.[0] || null)} /></label><label className="story-input-label">DISPLAY NAME<input className="community-text-input" value={account.displayName || (session?.user?.user_metadata?.display_name || 'Sarah N.')} onChange={(event) => setAccount((current) => ({ ...current, displayName: event.target.value.slice(0, 60) }))} maxLength={60} required /></label><label className="story-input-label">UNIQUE USERNAME<input className="community-text-input" value={account.username || session?.user?.user_metadata?.username || ''} onChange={(event) => setAccount((current) => ({ ...current, username: event.target.value.replace(/^@/, '').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24) }))} minLength={3} maxLength={24} pattern="[A-Za-z0-9_]{3,24}" required /></label><label className="story-input-label">BIO<textarea className="profile-bio-input" value={account.bio || ''} onChange={(event) => setAccount((current) => ({ ...current, bio: event.target.value.slice(0, 240) }))} maxLength={240} placeholder="What are you into?" /></label><small className="modal-footnote">{session ? 'Profile details sync to your account. Student email stays private.' : 'Demo profile is saved in this browser.'}</small><button className="primary-button full-button" disabled={profileBusy} type="submit">{profileBusy ? 'Saving…' : 'Save profile'}</button><button type="button" className="demo-link" onClick={() => { setModal('auth') }}>{session ? 'Account settings' : 'Sign in or create an account'}</button></form></div>}
-      {modal === 'auth' && <AuthPanel session={session} onClose={() => setModal('')} notify={notify} />}
-      {modal && modal !== 'auth' && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal('') }}><div className="modal-card"><button className="modal-close" onClick={() => setModal('')}>×</button>{modal === 'upgrade' && <><div className="modal-spark">✦</div><div className="eyebrow">CAMPUS PULSE OPEN BETA</div><h2>Everything is open.</h2><p>Subscriptions and payment collection are paused while we test the service. Messaging and core campus features are available in beta.</p><button className="primary-button full-button" onClick={() => { setModal(''); notify('All available beta features are unlocked.') }}>Explore the beta</button><button className="demo-link" onClick={() => setActive('Membership')}>See future subscription plans</button></>}{modal === 'verification' && <VerificationModal account={account} setAccount={setAccount} isPlus={isPlus} onUpgrade={() => setModal('upgrade')} notify={notify} />}{modal === 'safety' && <><div className="modal-spark"><ShieldCheck size={30} /></div><div className="eyebrow">LOOK OUT FOR EACH OTHER</div><h2>Good energy. Real respect.</h2><p>Campus Pulse is for university students aged 18 and over. Be kind, meet in public places, and trust your instincts.</p><div className="safety-list"><span>✓ <b>Keep personal details private</b><small>Share your number only when you feel ready.</small></span><span>✓ <b>Meet in public first</b><small>Tell a friend where you’re going.</small></span><span>✓ <b>Block or report anytime</b><small>We take your safety seriously.</small></span></div><button className="primary-button full-button" onClick={() => setModal('')}>Got it</button></>}{modal === 'story' && <><div className="modal-spark">◉</div><div className="eyebrow">SHARE A LITTLE MOMENT</div><h2>Your story, your people.</h2><p>Share a photo or quick thought with your campus. It disappears after 24 hours.</p><label className="story-input-label">ADD A CAPTION<textarea placeholder="What’s happening?" /></label><button className="primary-button full-button" onClick={() => { setModal(''); notify('Story posting will be available when media uploads are connected.') }}>Share story <span>→</span></button><small className="modal-footnote">Story uploads need a media service before launch</small></>}</div></div>}
+      {modal === 'auth' && <AuthPanel session={session} onSessionChange={(nextSession) => { setSession(nextSession); if (!supabase) { window.localStorage.setItem(PREVIEW_SESSION_KEY, JSON.stringify(nextSession)); if (nextSession?.user?.user_metadata) setAccount((current) => ({ ...current, displayName: nextSession.user.user_metadata.display_name, username: nextSession.user.user_metadata.username, interests: nextSession.user.user_metadata.interests || [] })) } }} onClose={() => setModal('')} notify={notify} />}
+      {modal && modal !== 'auth' && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal('') }}><div className="modal-card"><button className="modal-close" onClick={() => setModal('')}>×</button>{modal === 'upgrade' && <><div className="modal-spark">✦</div><div className="eyebrow">CAMPUS PULSE OPEN BETA</div><h2>Everything is open.</h2><p>Subscriptions and payment collection are paused while we test the service. Messaging and core campus features are available in beta.</p><button className="primary-button full-button" onClick={() => { setModal(''); notify('All available beta features are unlocked.') }}>Explore the beta</button><button className="demo-link" onClick={() => setActive('Membership')}>See future subscription plans</button></>}{modal === 'verification' && <VerificationModal account={account} setAccount={setAccount} isPlus={isPlus} onUpgrade={() => setModal('upgrade')} notify={notify} />}{modal === 'safety' && <><div className="modal-spark"><ShieldCheck size={30} /></div><div className="eyebrow">LOOK OUT FOR EACH OTHER</div><h2>Good energy. Real respect.</h2><p>Campus Pulse is for university students aged 18 and over. Be kind, meet in public places, and trust your instincts.</p><div className="safety-list"><span>✓ <b>Keep personal details private</b><small>Share your number only when you feel ready.</small></span><span>✓ <b>Meet in public first</b><small>Tell a friend where you’re going.</small></span><span>✓ <b>Block or report anytime</b><small>We take your safety seriously.</small></span></div><button className="primary-button full-button" onClick={() => setModal('')}>Got it</button></>}{modal === 'story' && <form className="story-publish-form" onSubmit={publishStory}><div className="modal-spark">◉</div><div className="eyebrow">SHARE A LITTLE MOMENT</div><h2>Your story, your people.</h2><p>Share a photo, short video, or thought. Stories expire after 24 hours.</p><label className="story-input-label">PHOTO OR VIDEO<input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={(event) => setStoryFile(event.target.files?.[0] || null)} /></label><label className="story-input-label">CAPTION<textarea value={storyCaption} onChange={(event) => setStoryCaption(event.target.value)} placeholder="What’s happening?" maxLength={500} /></label><small className="modal-footnote">Up to 25 MB. Keep stories respectful; explicit nudity is not allowed.</small><button className="primary-button full-button" disabled={storyBusy} type="submit">{storyBusy ? 'Saving…' : 'Share story →'}</button></form>}</div></div>}
+      {viewingStory && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setViewingStory(null) }}><section className="story-viewer"><button className="modal-close" onClick={() => setViewingStory(null)}>×</button>{viewingStory.mediaUrl && viewingStory.mediaType === 'video' ? <video src={viewingStory.mediaUrl} controls autoPlay playsInline /> : viewingStory.mediaUrl ? <img src={viewingStory.mediaUrl} alt={`Story by ${viewingStory.author}`} /> : <div className="story-viewer-empty"><span>✦</span><b>{viewingStory.author}</b><small>{viewingStory.caption}</small></div>}<div className="story-viewer-caption"><b>{viewingStory.author}</b><p>{viewingStory.caption}</p><small>Disappears after 24 hours</small></div></section></div>}
       {toast && <div className="toast">✦ &nbsp;{toast}</div>}
       <nav className="mobile-nav">{mobileNavItems.map(([label, NavIcon]) => <button key={label} className={`nav-${label.toLowerCase().replaceAll(' ', '-')} ${active === label ? 'active' : ''}`} onClick={() => { setActive(label); if (label === 'Messages' && !isPlus) setModal('upgrade') }}><NavIcon size={19} strokeWidth={2.1} aria-hidden="true" /><small>{label === 'Live rooms' ? 'Live' : label === 'Membership' ? 'Plans' : label}</small></button>)}</nav>
     </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
+import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 
 const demoPeople = [
   { id: 'demo-amina', name: 'Amina K.', school: 'Makerere · Law', color: 'lilac', initials: 'AK', online: true, preview: 'Hey! Are you going to the art fair?' },
@@ -21,13 +22,20 @@ const initialThread = [
   { id: 'demo-2', sender_id: 'me', body: 'I was just thinking about that! It looks so fun ✨', created_at: new Date().toISOString() },
   { id: 'demo-3', sender_id: 'peer', body: 'Right? We should check it out together!', created_at: new Date().toISOString() },
 ]
+const threadStorageKey = (peerId) => `campus-pulse-thread-${peerId}`
+const readDemoThread = (peerId) => {
+  try { const saved = JSON.parse(localStorage.getItem(threadStorageKey(peerId))); return Array.isArray(saved) ? saved : initialThread } catch { return initialThread }
+}
+const saveDemoThread = (peerId, messages) => {
+  try { localStorage.setItem(threadStorageKey(peerId), JSON.stringify(messages.map(({ audio_url: _audioUrl, ...message }) => message))) } catch { /* Keep the active conversation usable when browser storage is full. */ }
+}
 
 export default function Messaging({ session, isPlus, selectedPerson, notify, onUpgrade }) {
   const [directory, setDirectory] = useState(() => supabase && session ? [] : demoPeople)
   const [conversations, setConversations] = useState([])
   const [activePeer, setActivePeer] = useState(() => supabase && session ? null : (selectedPerson ? demoPeople.find((person) => person.name === selectedPerson.name) || demoPeople[0] : demoPeople[0]))
   const [activeConversation, setActiveConversation] = useState(null)
-  const [thread, setThread] = useState(initialThread)
+  const [thread, setThread] = useState(() => readDemoThread(activePeer?.id || 'demo-amina'))
   const [draft, setDraft] = useState('')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
@@ -41,6 +49,18 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
   const userId = session?.user?.id
   const filteredConversations = conversations.filter((item) => `${item.peer.name} ${item.peer.school} ${item.preview}`.toLowerCase().includes(search.toLowerCase()))
   const visibleDirectory = useMemo(() => directory.filter((person) => `${person.name} ${person.school}`.toLowerCase().includes(search.toLowerCase())), [directory, search])
+
+  useEffect(() => {
+    if (supabase || !activePeer?.id) return undefined
+    let active = true
+    const hydrate = async () => {
+      const messages = readDemoThread(activePeer.id)
+      const hydrated = await Promise.all(messages.map(async (message) => message.audioKey ? { ...message, audio_url: await getLocalMediaUrl(message.audioKey) } : message))
+      if (active) setThread(hydrated)
+    }
+    hydrate()
+    return () => { active = false }
+  }, [activePeer?.id])
 
   const loadConversationList = useCallback(async () => {
     if (!supabase || !userId) return
@@ -111,7 +131,7 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
     setActivePeer(peer)
     const existing = conversations.find((item) => item.peer.id === peer.id)
     if (existing) { setActiveConversation(existing.id); return }
-    if (!supabase || !userId) { setActiveConversation(null); setThread(initialThread); return }
+    if (!supabase || !userId) { setActiveConversation(null); setThread(readDemoThread(peer.id)); return }
     setBusy(true)
     const { data, error } = await supabase.rpc('create_campus_conversation', { target_user_id: peer.id })
     setBusy(false)
@@ -139,11 +159,19 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
       if (error) { notify(error.message); return }
       setDraft(''); await loadConversationList(); return
     }
-    setThread((current) => [...current, { id: `demo-${Date.now()}`, sender_id: 'me', body, created_at: new Date().toISOString() }])
+    setThread((current) => {
+      const next = [...current, { id: `demo-${Date.now()}`, sender_id: 'me', body, created_at: new Date().toISOString() }]
+      saveDemoThread(activePeer.id, next)
+      return next
+    })
     setDraft('')
     setPeerTyping(true)
     window.setTimeout(() => {
-      setThread((current) => [...current, { id: `demo-reply-${Date.now()}`, sender_id: 'peer', body: ['That sounds good 😊', 'Haha, I was thinking the same!', 'Nice! Let me know what time works ✨'][Math.floor(Math.random() * 3)], created_at: new Date().toISOString() }])
+      setThread((current) => {
+        const next = [...current, { id: `demo-reply-${Date.now()}`, sender_id: 'peer', body: ['That sounds good 😊', 'Haha, I was thinking the same!', 'Nice! Let me know what time works ✨'][Math.floor(Math.random() * 3)], created_at: new Date().toISOString() }]
+        saveDemoThread(activePeer.id, next)
+        return next
+      })
       setPeerTyping(false)
     }, 1300)
   }
@@ -185,8 +213,15 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
           else notify('Voice note sent.')
           return
         }
-        const audioUrl = URL.createObjectURL(audio)
-        setThread((current) => [...current, { id: `demo-voice-${Date.now()}`, sender_id: 'me', body: 'Voice note', audio_url: audioUrl, created_at: new Date().toISOString() }])
+        try {
+          const audioKey = await saveLocalMedia(audio)
+          const audioUrl = URL.createObjectURL(audio)
+          setThread((current) => {
+            const next = [...current, { id: `demo-voice-${Date.now()}`, sender_id: 'me', body: 'Voice note', audioKey, audio_url: audioUrl, created_at: new Date().toISOString() }]
+            saveDemoThread(activePeer.id, next)
+            return next
+          })
+        } catch { setRecordingError('This browser could not save the voice note. Check available storage.') }
       }
       recorder.start()
       setRecordingError('')

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import Marketplace from './Marketplace'
 import LiveRooms from './LiveRooms'
+import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 import { Bookmark, Heart, MessageCircle, Share2, Send } from 'lucide-react'
 import './Community.css'
 
@@ -129,6 +130,16 @@ function Feed({ clips, events, notify, onCreate, session, onMessageAuthor }) {
 function Events({ events, setEvents, notify, onCreate, canModerate, session, onDemoModeratorToggle }) {
   const [moderatorMode, setModeratorMode] = useState(false)
   const [joined, setJoined] = useState(() => load('campus-pulse-event-rsvps', []))
+  useEffect(() => {
+    if (!supabase || !session?.user?.id || !events.length) return undefined
+    let active = true
+    supabase.from('event_rsvps').select('event_id').eq('user_id', session.user.id).in('event_id', events.map((event) => event.id)).then(({ data, error }) => {
+      if (!active) return
+      if (error) { notify(error.message); return }
+      setJoined((data || []).map((row) => row.event_id))
+    })
+    return () => { active = false }
+  }, [session?.user?.id, events, notify])
   const rsvp = async (id) => {
     if (supabase && session) {
       const exists = joined.includes(id)
@@ -178,6 +189,8 @@ export default function Community({ page, account, notify, session, onMessageAut
   const [caption, setCaption] = useState('')
   const [title, setTitle] = useState('')
   const [details, setDetails] = useState('')
+  const [eventVenue, setEventVenue] = useState('')
+  const [eventStartsAt, setEventStartsAt] = useState('')
   const [videoFile, setVideoFile] = useState(null)
   const [postLink, setPostLink] = useState('')
   const [clipCategory, setClipCategory] = useState('Campus life')
@@ -192,7 +205,20 @@ export default function Community({ page, account, notify, session, onMessageAut
 
   useEffect(() => { notifyRef.current = notify }, [notify])
 
-  useEffect(() => { window.localStorage.setItem('campus-pulse-clips', JSON.stringify(clips.map(({ video: _video, ...clip }) => clip))) }, [clips])
+  useEffect(() => {
+    let active = true
+    Promise.all(clips.map(async (clip) => {
+      if (!clip.mediaKey || clip.video || clip.image) return clip
+      try {
+        const url = await getLocalMediaUrl(clip.mediaKey)
+        return { ...clip, video: clip.mediaType === 'video' ? url : '', image: clip.mediaType === 'image' ? url : '' }
+      } catch { return clip }
+    })).then((hydrated) => { if (active && hydrated.some((clip, index) => clip !== clips[index])) setClips(hydrated) })
+    return () => { active = false }
+  }, [clips])
+  useEffect(() => {
+    window.localStorage.setItem('campus-pulse-clips', JSON.stringify(clips.map(({ video: _video, image: _image, ...clip }) => clip)))
+  }, [clips])
   useEffect(() => { window.localStorage.setItem('campus-pulse-events', JSON.stringify(events)) }, [events])
   useEffect(() => {
     if (!supabase || !userId) return undefined
@@ -250,9 +276,9 @@ export default function Community({ page, account, notify, session, onMessageAut
     setPendingReels((current) => current.filter((item) => item.id !== reel.id))
     notify(moderationStatus === 'approved' ? 'Reel approved and added to the For You feed.' : 'Reel rejected and removed from the queue.')
   }
-  const openComposer = (kind) => { setComposer(kind); setCaption(''); setTitle(''); setDetails(''); setVideoFile(null); setPostLink(''); setClipCategory('Campus life') }
+  const openComposer = (kind) => { setComposer(kind); setCaption(''); setTitle(''); setDetails(''); setEventVenue(''); setEventStartsAt(''); setVideoFile(null); setPostLink(''); setClipCategory('Campus life') }
   const create = (kind) => { setModMode(kind === 'announcement'); setBoostEvent(false); openComposer(kind) }
-  const publishClip = (event) => {
+  const publishClip = async (event) => {
     event.preventDefault()
     if (!caption.trim() && !videoFile && !postLink.trim()) return
     if (supabase && !session) { notify('Sign in before posting. Use the profile button in the top bar.'); return }
@@ -273,30 +299,35 @@ export default function Community({ page, account, notify, session, onMessageAut
       })()
       return
     }
-    const mediaUrl = videoFile ? URL.createObjectURL(videoFile) : ''
-    const nextClip = { id: `user-${Date.now()}`, author: 'Sarah N. · Makerere', caption: caption.trim() || 'A little moment from campus ✨', tag: '#campuslife', category: clipCategory, tone: 'user', likes: 0, comments: 0, video: videoFile?.type.startsWith('video/') ? mediaUrl : '', image: videoFile?.type.startsWith('image/') ? mediaUrl : '', link: postLink.trim() }
+    let mediaKey = ''
+    let mediaUrl = ''
+    if (videoFile) {
+      try { mediaKey = await saveLocalMedia(videoFile); mediaUrl = URL.createObjectURL(videoFile) }
+      catch { notify('This browser could not save the media. Check available storage and try a smaller file.'); return }
+    }
+    const nextClip = { id: `user-${Date.now()}`, author: `${session?.user?.user_metadata?.display_name || 'Preview member'} · Campus Pulse`, caption: caption.trim() || 'A little moment from campus ✨', tag: '#campuslife', category: clipCategory, tone: 'user', likes: 0, comments: 0, mediaKey, mediaType: videoFile?.type.startsWith('video/') ? 'video' : 'image', video: videoFile?.type.startsWith('video/') ? mediaUrl : '', image: videoFile?.type.startsWith('image/') ? mediaUrl : '', link: postLink.trim() }
     const next = [nextClip, ...clips]
     setClips(next)
-    window.localStorage.setItem('campus-pulse-clips', JSON.stringify(next.map(({ video: _video, ...clip }) => clip)))
-    setComposer(''); notify('Your post is live in this browser preview. Connect Supabase to share it across devices.')
+    window.localStorage.setItem('campus-pulse-clips', JSON.stringify(next.map(({ video: _video, image: _image, ...clip }) => clip)))
+    setComposer(''); notify('Your post is saved in this browser preview. Connect Supabase to share it across devices.')
   }
-  const publishEvent = (event) => {
+  const publishEvent = async (event) => {
     event.preventDefault()
     if (!title.trim()) return
     if (supabase && !session) { notify('Sign in before submitting an event.'); return }
     if (supabase && session) {
-      const data = { created_by:session.user.id,title:title.trim(),venue:details.split('\n')[0] || 'Makerere University',details:details.split('\n').slice(1).join(' '),promoted:modMode || boostEvent,is_announcement:modMode,moderation_status:modMode ? 'approved' : 'pending' }
-      supabase.from('campus_events').insert(data).then(({ error }) => {
-        if (error) { notify(error.message); return }
-        setComposer(''); notify(modMode ? 'Campus announcement published and sent to the feed.' : 'Event submitted for moderator approval.')
-      })
+      const data = { created_by:session.user.id,title:title.trim(),venue:eventVenue.trim(),details:details.trim(),starts_at:eventStartsAt ? new Date(eventStartsAt).toISOString() : null,promoted:modMode || boostEvent,is_announcement:modMode,moderation_status:modMode ? 'approved' : 'pending' }
+      const { data: savedEvent, error } = await supabase.from('campus_events').insert(data).select('id,title,venue,details,starts_at,promoted,is_announcement,moderation_status').single()
+      if (error) { notify(error.message); return }
+      setEvents((current) => [{ id: savedEvent.id, title: savedEvent.title, place: savedEvent.venue, date: savedEvent.starts_at ? new Date(savedEvent.starts_at).toLocaleString() : 'Date to be confirmed', detail: savedEvent.details, category: savedEvent.is_announcement ? 'CAMPUS ANNOUNCEMENT' : 'CAMPUS EVENT', promoted: savedEvent.promoted, moderationStatus: savedEvent.moderation_status }, ...current])
+      setComposer(''); notify(modMode ? 'Campus announcement published and sent to the feed.' : 'Event saved and submitted for moderator review.')
       return
     }
-    const newEvent = { id: `event-${Date.now()}`, title: title.trim(), place: details.split('\n')[0] || 'Makerere University', date: 'Date to be confirmed', detail: details.split('\n').slice(1).join(' ') || 'More details coming soon.', category: modMode ? 'CAMPUS ANNOUNCEMENT' : 'STUDENT EVENT', promoted: modMode || boostEvent, attendees: 0 }
+    const newEvent = { id: `event-${Date.now()}`, title: title.trim(), place: eventVenue.trim() || 'Campus venue to be confirmed', date: eventStartsAt ? new Date(eventStartsAt).toLocaleString() : 'Date to be confirmed', detail: details.trim() || 'More details coming soon.', category: modMode ? 'CAMPUS ANNOUNCEMENT' : 'STUDENT EVENT', promoted: modMode || boostEvent, moderationStatus: 'approved', attendees: 0 }
     const next = [newEvent, ...events]
     setEvents(next)
     window.localStorage.setItem('campus-pulse-events', JSON.stringify(next))
-    setComposer(''); notify(modMode ? 'Announcement added to Events and the FYP in this browser demo.' : 'Event posted in this browser demo.')
+    setComposer(''); notify(modMode ? 'Announcement saved to Events and the FYP in this browser preview.' : 'Event saved to this browser preview.')
   }
 
   return <>
@@ -304,9 +335,9 @@ export default function Community({ page, account, notify, session, onMessageAut
     {page === 'Events' && <Events events={events} setEvents={setEvents} notify={notify} canModerate={canModerate} session={session} onDemoModeratorToggle={() => { setDemoModerator((current) => !current); notify(demoModerator ? 'Moderator preview closed' : 'Moderator preview enabled for this demo only') }} onCreate={() => create(canModerate ? 'announcement' : 'event')} />}
     {page === 'Membership' && <Plans />}
     {page === 'Live rooms' && <LiveRooms account={account} session={session} moderator={canModerate} notify={notify} onUpgrade={() => notify('Choose Pulse Plus in Membership to schedule or join live rooms.')} />}
-    {page === 'Marketplace' && <Marketplace type="Marketplace" session={session} notify={notify} moderator={canModerate} />}
-    {page === 'Hostels' && <Marketplace type="Hostels" session={session} notify={notify} moderator={canModerate} />}
-    {composer && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setComposer('') }}><form className="modal-card community-composer" onSubmit={composer === 'post' ? publishClip : publishEvent}><button type="button" className="modal-close" onClick={() => setComposer('')}>×</button><div className="modal-spark">{composer === 'post' ? '▶' : '✦'}</div><div className="eyebrow">{composer === 'post' ? 'CREATE FOR YOUR CAMPUS' : modMode ? 'MODERATOR ANNOUNCEMENT' : 'CAMPUS COMMUNITY'}</div><h2>{composer === 'post' ? 'Share a moment.' : modMode ? 'Post a campus announcement.' : 'Put your event out there.'}</h2><p>{composer === 'post' ? 'Post text, a photo or video, and a useful link. Keep it kind, relevant, and yours.' : modMode ? 'Announcements are featured in Events and the For You feed, and trigger an in-app alert.' : 'Help your campus find your gathering.'}</p>{composer === 'post' ? <><label className="story-input-label">CATEGORY<select className="community-text-input" value={clipCategory} onChange={(event) => setClipCategory(event.target.value)}>{['Campus life','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <option key={item}>{item}</option>)}</select></label><label className="story-input-label">CAPTION<textarea value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="What’s happening on campus?" maxLength={2000} /></label><label className="story-input-label">PHOTO OR VIDEO <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={(event) => setVideoFile(event.target.files?.[0] || null)} /></label><label className="story-input-label">LINK (HTTPS)<input className="community-text-input" type="url" placeholder="https://…" onChange={(event) => setPostLink(event.target.value)} /></label><small className="modal-footnote">Media under 50 MB. Uploaded posts are reviewed before reaching the shared feed.</small><button className="primary-button full-button" type="submit">Publish post ↗</button></> : <><label className="story-input-label">EVENT TITLE<input className="community-text-input" value={title} onChange={(event) => setTitle(event.target.value)} required placeholder="What are you hosting?" maxLength={90} /></label><label className="story-input-label">VENUE & DETAILS<textarea value={details} onChange={(event) => setDetails(event.target.value)} placeholder={'Venue\nA few details for students…'} /></label>{!modMode && <label className="story-input-label"><input type="checkbox" checked={boostEvent} onChange={(event) => setBoostEvent(event.target.checked)} /> FEATURE THIS EVENT <small>Campus promotion is free during the open beta.</small></label>}<button className="primary-button full-button" type="submit">{modMode ? 'Publish announcement' : 'Post event'} ↗</button><small className="modal-footnote">{modMode ? 'Moderator preview only · server-side role checks required' : 'Student events appear after review. Event alerts are on for opted-in members.'}</small></>}</form></div>}
+    {page === 'Marketplace' && <Marketplace type="Marketplace" session={session} notify={notify} moderator={canModerate} onMessageAuthor={onMessageAuthor} />}
+    {page === 'Hostels' && <Marketplace type="Hostels" session={session} notify={notify} moderator={canModerate} onMessageAuthor={onMessageAuthor} />}
+    {composer && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setComposer('') }}><form className="modal-card community-composer" onSubmit={composer === 'post' ? publishClip : publishEvent}><button type="button" className="modal-close" onClick={() => setComposer('')}>×</button><div className="modal-spark">{composer === 'post' ? '▶' : '✦'}</div><div className="eyebrow">{composer === 'post' ? 'CREATE FOR YOUR CAMPUS' : modMode ? 'MODERATOR ANNOUNCEMENT' : 'CAMPUS COMMUNITY'}</div><h2>{composer === 'post' ? 'Share a moment.' : modMode ? 'Post a campus announcement.' : 'Put your event out there.'}</h2><p>{composer === 'post' ? 'Post text, a photo or video, and a useful link. Keep it kind, relevant, and yours.' : modMode ? 'Announcements are featured in Events and the For You feed, and trigger an in-app alert.' : 'Help your campus find your gathering.'}</p>{composer === 'post' ? <><label className="story-input-label">CATEGORY<select className="community-text-input" value={clipCategory} onChange={(event) => setClipCategory(event.target.value)}>{['Campus life','Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <option key={item}>{item}</option>)}</select></label><label className="story-input-label">CAPTION<textarea value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="What’s happening on campus?" maxLength={2000} /></label><label className="story-input-label">PHOTO OR VIDEO <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={(event) => setVideoFile(event.target.files?.[0] || null)} /></label><label className="story-input-label">LINK (HTTPS)<input className="community-text-input" type="url" placeholder="https://…" onChange={(event) => setPostLink(event.target.value)} /></label><small className="modal-footnote">Media under 50 MB. Uploaded posts are reviewed before reaching the shared feed.</small><button className="primary-button full-button" type="submit">Publish post ↗</button></> : <><label className="story-input-label">EVENT TITLE<input className="community-text-input" value={title} onChange={(event) => setTitle(event.target.value)} required placeholder="What are you hosting?" maxLength={90} /></label><label className="story-input-label">VENUE<input className="community-text-input" value={eventVenue} onChange={(event) => setEventVenue(event.target.value)} required placeholder="Where is it happening?" maxLength={150} /></label><label className="story-input-label">DATE & TIME<input className="community-text-input" type="datetime-local" value={eventStartsAt} onChange={(event) => setEventStartsAt(event.target.value)} /></label><label className="story-input-label">EVENT DETAILS<textarea value={details} onChange={(event) => setDetails(event.target.value)} placeholder="What should students know?" maxLength={1500} /></label>{!modMode && <label className="story-input-label"><input type="checkbox" checked={boostEvent} onChange={(event) => setBoostEvent(event.target.checked)} /> FEATURE THIS EVENT <small>Campus promotion is free during the open beta.</small></label>}<button className="primary-button full-button" type="submit">{modMode ? 'Publish announcement' : 'Post event'} ↗</button><small className="modal-footnote">{modMode ? 'Moderator preview only · server-side role checks required' : 'Student events appear after review. Event alerts are on for opted-in members.'}</small></>}</form></div>}
   </>
 }
 

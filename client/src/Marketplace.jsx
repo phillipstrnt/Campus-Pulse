@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 import './Marketplace.css'
 
 const demos = {
@@ -27,7 +28,7 @@ const savedOrSeeded = (key, seeds) => {
   return [...merged, ...saved.filter((item) => !seeds.some((seed) => seed.id === item.id))]
 }
 
-export default function Marketplace({ type = 'Marketplace', session, notify, moderator = false }) {
+export default function Marketplace({ type = 'Marketplace', session, notify, moderator = false, onMessageAuthor }) {
   const isHostel = type === 'Hostels'
   const [items, setItems] = useState(() => savedOrSeeded(`campus-pulse-${type.toLowerCase()}`, demos[type]))
   const [search, setSearch] = useState('')
@@ -40,6 +41,20 @@ export default function Marketplace({ type = 'Marketplace', session, notify, mod
   const categoryOptions = isHostel ? ['All', 'Single room', 'Shared room', 'Studio'] : ['All', 'Study essentials', 'Electronics', 'Fashion', 'Transport', 'Room & living']
 
   useEffect(() => {
+    let active = true
+    Promise.all(items.map(async (item) => {
+      if (!item.imageKey || item.image) return item
+      try { return { ...item, image: await getLocalMediaUrl(item.imageKey) } } catch { return item }
+    })).then((hydrated) => { if (active && hydrated.some((item, index) => item !== items[index])) setItems(hydrated) })
+    return () => { active = false }
+  }, [items])
+
+  useEffect(() => {
+    if (supabase && session) return
+    try { localStorage.setItem(`campus-pulse-${type.toLowerCase()}`, JSON.stringify(items.map(({ image: _image, ...item }) => item))) } catch { notify('Your browser storage is full. Remove older preview listings and try again.') }
+  }, [items, type, session, notify])
+
+  useEffect(() => {
     if (!supabase || !session) return
     let active = true
     const table = isHostel ? 'hostel_listings' : 'marketplace_listings'
@@ -50,7 +65,7 @@ export default function Marketplace({ type = 'Marketplace', session, notify, mod
         const mapped = await Promise.all(data.map(async (row) => {
           const paths = row.photo_paths || []
           const photo = paths[0] ? await supabase.storage.from('campus-media').createSignedUrl(paths[0], 3600) : null
-          return { id: row.id, title: isHostel ? row.room_title : row.title, category: isHostel ? row.room_type : row.category, price: row.price_amount, location: row.location, detail: row.description, seller: isHostel ? row.hostel_name : 'Campus member', icon: isHostel ? '🏠' : '🛍️', tint: 'lavender', image: photo?.data?.signedUrl || '', owner: row[ownerColumn] === session.user.id, status: row.moderation_status }
+          return { id: row.id, sellerId: row[ownerColumn], title: isHostel ? row.room_title : row.title, category: isHostel ? row.room_type : row.category, price: row.price_amount, location: row.location, detail: row.description, seller: isHostel ? row.hostel_name : 'Campus member', icon: isHostel ? '🏠' : '🛍️', tint: 'lavender', image: photo?.data?.signedUrl || '', owner: row[ownerColumn] === session.user.id, status: row.moderation_status }
         }))
         setItems(mapped)
       }
@@ -93,11 +108,16 @@ export default function Marketplace({ type = 'Marketplace', session, notify, mod
         if (error) { notify(error.message); return }
         notify('Listing submitted for campus moderator review.')
       } else {
-        const item = { id: `demo-${Date.now()}`, title: form.title.trim(), category: form.category || (isHostel ? 'Single room' : 'Study essentials'), price: Number(form.price), location: form.location.trim(), detail: form.detail.trim(), seller: isHostel ? `${form.hostelName || 'Hostel owner'} · demo listing` : 'Campus member · demo listing', icon: isHostel ? '🏠' : '🛍️', tint: 'lilac', image: photos[0] ? URL.createObjectURL(photos[0]) : '' }
+        let imageKey = ''
+        let image = ''
+        if (photos[0]) {
+          try { imageKey = await saveLocalMedia(photos[0]); image = URL.createObjectURL(photos[0]) }
+          catch { notify('This browser could not save the listing photo. Check storage space and try a smaller image.'); return }
+        }
+        const item = { id: `demo-${Date.now()}`, title: form.title.trim(), category: form.category || (isHostel ? 'Single room' : 'Study essentials'), price: Number(form.price), location: form.location.trim(), detail: form.detail.trim(), seller: isHostel ? `${form.hostelName || 'Hostel owner'} · preview listing` : 'Campus member · preview listing', icon: isHostel ? '🏠' : '🛍️', tint: 'lilac', image, imageKey }
         const next = [item, ...items]
         setItems(next)
-        localStorage.setItem(`campus-pulse-${type.toLowerCase()}`, JSON.stringify(next.map(({ image: _image, ...saved }) => saved)))
-        notify('Listing added to this browser preview. Connect Supabase to share it across campus.')
+        notify('Listing saved in this browser preview. Connect Supabase to share it across campus.')
       }
       setComposer(false); setPhotos([]); setForm({ title: '', category: '', price: '', location: '', detail: '', hostelName: '' })
     } finally { setBusy(false) }
@@ -108,7 +128,7 @@ export default function Marketplace({ type = 'Marketplace', session, notify, mod
     <div className="market-trust"><span>✓ Campus email members</span><span>✓ Moderator-reviewed posts</span><span>✓ Meet in public places</span></div>
     <section className="market-controls"><div className="market-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isHostel ? 'Search areas, room types or amenities' : 'Search items, categories or campus'} /></div><div className="market-categories">{categories.map((item) => <button key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div></section>
     <div className="market-result-row"><div><b>{isHostel ? 'Student-friendly rooms' : 'Fresh on campus'}</b><small>{visible.length} listing{visible.length === 1 ? '' : 's'} · {isHostel ? 'monthly prices' : 'local sellers'}</small></div><button onClick={() => notify('Choose a public campus meeting point. Never pay before viewing an item or room.')}>Safety tips ↗</button></div>
-    {visible.length ? <section className="market-grid">{visible.map((item) => { const photoReady = Boolean(item.image && !failedPhotos.has(item.id)); return <article className="market-card" key={item.id}><div className={`market-image ${photoReady ? 'has-photo' : ''} tint-${item.tint || 'lavender'}`}>{photoReady ? <img src={item.image} alt={`${item.title} demo listing`} loading="lazy" onError={() => setFailedPhotos((current) => new Set([...current, item.id]))} /> : <span>{item.icon}</span>}<small>{item.category}</small></div><div className="market-card-body"><div className="market-price">{priceLabel(item.price)}{isHostel && <small> / month</small>}</div>{moderator && item.status === 'pending' && <small className="market-review-label">PENDING MODERATOR REVIEW</small>}<h2>{item.title}</h2><p className="market-location">⌖ {item.location}</p><p className="market-description">{item.detail}</p><div className="market-card-foot"><span>{item.seller}</span>{moderator && item.status === 'pending' ? <span className="market-review-actions"><button onClick={() => review(item, 'rejected')}>Reject</button><button onClick={() => review(item, 'approved')}>Approve</button></span> : <button onClick={() => notify(session ? 'Contact details stay private. Secure in-app messaging is part of the next backend milestone.' : 'Sign in to contact campus members securely.')}>Contact ↗</button>}</div></div></article> })}</section> : <div className="market-empty">No matches yet. Try another search or post the first listing.</div>}
+    {visible.length ? <section className="market-grid">{visible.map((item) => { const photoReady = Boolean(item.image && !failedPhotos.has(item.id)); return <article className="market-card" key={item.id}><div className={`market-image ${photoReady ? 'has-photo' : ''} tint-${item.tint || 'lavender'}`}>{photoReady ? <img src={item.image} alt={`${item.title} listing`} loading="lazy" onError={() => setFailedPhotos((current) => new Set([...current, item.id]))} /> : <span>{item.icon}</span>}<small>{item.category}</small></div><div className="market-card-body"><div className="market-price">{priceLabel(item.price)}{isHostel && <small> / month</small>}</div>{moderator && item.status === 'pending' && <small className="market-review-label">PENDING MODERATOR REVIEW</small>}<h2>{item.title}</h2><p className="market-location">⌖ {item.location}</p><p className="market-description">{item.detail}</p><div className="market-card-foot"><span>{item.seller}</span>{moderator && item.status === 'pending' ? <span className="market-review-actions"><button onClick={() => review(item, 'rejected')}>Reject</button><button onClick={() => review(item, 'approved')}>Approve</button></span> : <button onClick={() => item.sellerId && onMessageAuthor ? onMessageAuthor({ id: item.sellerId, name: item.seller, school: item.location }) : notify(item.sellerId ? 'Sign in to contact this seller.' : 'This is a sample listing. Sellers can be contacted directly once they post from an account.')}>Contact ↗</button>}</div></div></article> })}</section> : <div className="market-empty">No matches yet. Try another search or post the first listing.</div>}
     <p className="market-disclaimer">Sample listings are for preview only. Confirm ownership, condition and price in person. Never send deposits to an unverified account.</p>
     {composer && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setComposer(false) }}><section className="modal-card market-composer"><button className="modal-close" onClick={() => setComposer(false)}>×</button><span className="market-kicker">{isHostel ? 'HELP STUDENTS FIND A HOME' : 'CAMPUS MARKETPLACE'}</span><h2>{isHostel ? 'List a hostel room.' : 'Create a listing.'}</h2><p>Listings stay pending until a campus moderator reviews them.</p><form onSubmit={publish}><label>{isHostel ? 'Hostel or property name' : 'Listing title'}{isHostel && <input value={form.hostelName} onChange={updateForm('hostelName')} placeholder="e.g. Green View Hostel" required />}<input value={form.title} onChange={updateForm('title')} placeholder={isHostel ? 'e.g. Furnished single room' : 'e.g. Scientific calculator'} maxLength={90} required /></label><div className="market-form-row"><label>{isHostel ? 'Room type' : 'Category'}<select value={form.category} onChange={updateForm('category')}><option value="">Choose one</option>{categories.slice(1).map((item) => <option key={item}>{item}</option>)}</select></label><label>{isHostel ? 'Monthly rent (UGX)' : 'Price (UGX)'}<input type="number" min="0" step="1000" value={form.price} onChange={updateForm('price')} required /></label></div><label>Location<input value={form.location} onChange={updateForm('location')} placeholder="Neighbourhood, campus" required maxLength={120} /></label><label>{isHostel ? 'Room conditions and amenities' : 'Condition and description'}<textarea value={form.detail} onChange={updateForm('detail')} placeholder={isHostel ? 'Describe security, water, power, Wi-Fi, bathroom, availability…' : 'Describe condition, included items and pickup…'} maxLength={1200} required /></label><label>Photos (up to 4)<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setPhotos([...event.target.files].slice(0, 4))} /></label><button className="market-primary market-submit" disabled={busy}>{busy ? 'Submitting…' : 'Submit for review →'}</button><small>Photos are limited to 8 MB each. Never upload private documents.</small></form></section></div>}
   </div>
