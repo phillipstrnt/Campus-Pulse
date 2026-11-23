@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Community from './Community'
 import AuthPanel from './AuthPanel'
 import Messaging from './Messaging'
+import AdminDashboard from './AdminDashboard'
 import { supabase } from './supabase'
 import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 import { Bell, BookOpenText, CalendarDays, Clapperboard, Compass, Heart, House, MessageCircle, Radio, ShieldCheck, ShoppingBag, Sparkles } from 'lucide-react'
@@ -101,6 +102,8 @@ function App() {
   const [search, setSearch] = useState('')
   const [selectedPerson, setSelectedPerson] = useState(people[0])
   const betaAccount = { ...account, plus: true }
+  const moderator = ['moderator', 'admin'].includes(account.role)
+  const availableNavItems = moderator ? [...navItems, ['Admin', ShieldCheck]] : navItems
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notifications, setNotifications] = useState(() => {
     try { return JSON.parse(window.localStorage.getItem('campus-pulse-notifications')) || [
@@ -168,9 +171,9 @@ function App() {
   useEffect(() => {
     if (!supabase || !session?.user?.id) return undefined
     let active = true
-    supabase.from('profiles').select('display_name,username,bio,profile_photo_path').eq('id', session.user.id).maybeSingle().then(async ({ data, error }) => {
+    supabase.from('profiles').select('display_name,username,bio,profile_photo_path,role,verification_status').eq('id', session.user.id).maybeSingle().then(async ({ data, error }) => {
       if (!active || error || !data) return
-      setAccount((current) => ({ ...current, displayName: data.display_name || current.displayName, username: data.username || current.username, bio: data.bio || '', university: current.university || 'Independent member' }))
+      setAccount((current) => ({ ...current, displayName: data.display_name || current.displayName, username: data.username || current.username, bio: data.bio || '', role: data.role || 'student', verification: data.verification_status || current.verification, university: current.university || 'Independent member' }))
       if (data.profile_photo_path) {
         const { data: image } = await supabase.storage.from('campus-media').createSignedUrl(data.profile_photo_path, 3600)
         if (active) setProfilePhotoUrl(image?.signedUrl || '')
@@ -332,13 +335,14 @@ function App() {
         <a className="brand" href="#discover" onClick={() => setActive('Discover')}><span className="brand-mark">p</span><span>campus<span className="brand-accent">pulse</span><small>YOUR CAMPUS. YOUR PEOPLE.</small></span></a>
         <div className="campus-switch"><span className="campus-icon">M</span><span><b>Makerere University</b><small>Kampala, Uganda</small></span><span className="chevron">⌄</span></div>
         <div className="side-label">YOUR SPACE</div>
-        <nav>{navItems.map(([label, NavIcon]) => <button key={label} className={`nav-item nav-${label.toLowerCase().replaceAll(' ', '-')} ${active === label ? 'selected' : ''}`} onClick={() => { setActive(label); if (label === 'Messages' && !isPlus) setModal('upgrade') }}><NavIcon className="nav-icon" size={18} strokeWidth={2.1} aria-hidden="true" />{label}{label === 'Messages' && <span className="nav-count">2</span>}{label === 'Live rooms' && <span className="live-dot" />}</button>)}</nav>
+        <nav>{availableNavItems.map(([label, NavIcon]) => <button key={label} className={`nav-item nav-${label.toLowerCase().replaceAll(' ', '-')} ${active === label ? 'selected' : ''}`} onClick={() => { setActive(label); if (label === 'Messages' && !isPlus) setModal('upgrade') }}><NavIcon className="nav-icon" size={18} strokeWidth={2.1} aria-hidden="true" />{label}{label === 'Messages' && <span className="nav-count">2</span>}{label === 'Live rooms' && <span className="live-dot" />}</button>)}</nav>
         <div className="side-bottom"><div className="upgrade-card beta-card"><div className="upgrade-spark">✦</div><b>Campus Pulse beta</b><p>Core social features are open while we learn from campus communities.</p><button onClick={() => setActive('Membership')}>See future plans <span>→</span></button></div><button className="profile-mini" onClick={() => setModal('profile')}><span className="avatar avatar-me">{(profilePhotoUrl || account.profilePhoto) ? <img src={profilePhotoUrl || account.profilePhoto} alt="Your profile" /> : (account.displayName || 'Sarah N.').slice(0, 1).toUpperCase()}</span><span><b>{account.displayName || 'Sarah N.'}</b><small>@{account.username || 'set_username'} · {account.verification === 'verified' ? '✓ Verified student' : 'Open beta member'}</small></span><span className="more">Edit</span></button></div>
       </aside>
 
       <main className="main-content">
         <header className="topbar"><div className="mobile-brand">campus<span>pulse</span></div><div className="breadcrumb">Your campus <span>/</span> <b>{active}</b></div><div className="top-actions"><button className="icon-button notification-trigger" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={19} strokeWidth={2} />{notifications.some((item) => !item.read) && <i />}</button><button className="top-avatar" aria-label={session ? 'Account settings' : 'Sign in or register'} onClick={() => setModal('auth')}>{session?.user?.email?.slice(0, 1).toUpperCase() || (account.displayName || 'S').slice(0, 1).toUpperCase()}</button>{notificationsOpen && <section className="notification-popover"><header><b>Notifications</b><button onClick={() => setNotifications((items) => items.map((item) => ({ ...item, read: true })))}>Mark all read</button></header><button className="device-alert-toggle" onClick={enableDeviceAlerts}>{deviceAlerts ? '✓ Device alerts enabled' : 'Enable device alerts'}</button>{notifications.map((item) => <article className={item.read ? '' : 'unread'} key={item.id}><b>{item.title}</b><p>{item.detail}</p></article>)}{!notifications.length && <p className="notification-empty">You’re all caught up.</p>}</section>}</div></header>
 
+        {active === 'Admin' && (moderator ? <AdminDashboard notify={notify} /> : <div className="page-wrap"><div className="locked-panel"><h2>Staff access required</h2><p>This dashboard is available only to authorized Campus Pulse moderators.</p></div></div>)}
         {active === 'Discover' && <div className="page-wrap">
           <section className="welcome-row"><div><div className="eyebrow"><span className="pulse-dot" /> YOUR CAMPUS, IN THE MOMENT</div><h1>Find your <em>people.</em></h1><p className="intro">Good energy is closer than you think.</p></div><button className="outline-button" onClick={() => setModal('safety')}><ShieldCheck size={17} /> <span>Community guidelines</span></button></section>
           <section className="story-section"><div className="section-heading"><div><h2>Campus stories <span className="live-pill">24H</span></h2><p>Little moments, gone tomorrow.</p></div><button className="text-button" onClick={() => setActive('Stories')}>See all →</button></div><div className="story-row"><button className="story-item" onClick={() => { setStoryCaption(''); setStoryFile(null); setModal('story') }}><span className="story-ring"><span className="avatar story-avatar avatar-blank">＋</span></span><span>Your story</span></button>{campusStories.map((story) => <button className="story-item" key={story.id} onClick={() => openStory(story)}><span className="story-ring fresh"><span className="avatar story-avatar avatar-lilac">{story.mediaUrl && story.mediaType === 'image' ? <img src={story.mediaUrl} alt="" /> : story.author.slice(0, 2).toUpperCase()}</span></span><span>{story.author}</span></button>)}{stories.slice(1).map((story) => <button className="story-item" key={story.name} onClick={() => openStory({ author: story.name, caption: `${story.name} shared a campus moment.`, mediaUrl: '', mediaType: 'image' })}><span className={`story-ring ${story.fresh ? 'fresh' : ''}`}><span className={`avatar story-avatar avatar-${story.color}`}>{story.initials}</span></span><span>{story.name}</span></button>)}</div></section>
