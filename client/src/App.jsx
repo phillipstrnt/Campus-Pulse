@@ -3,6 +3,7 @@ import Community from './Community'
 import AuthPanel from './AuthPanel'
 import Messaging from './Messaging'
 import AdminDashboard from './AdminDashboard'
+import NotificationsCenter from './NotificationsCenter'
 import { supabase } from './supabase'
 import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 import { Bell, BookOpenText, CalendarDays, Clapperboard, Compass, Heart, House, MessageCircle, Radio, ShieldCheck, ShoppingBag, Sparkles } from 'lucide-react'
@@ -340,8 +341,9 @@ function App() {
       </aside>
 
       <main className="main-content">
-        <header className="topbar"><div className="mobile-brand">campus<span>pulse</span></div><div className="breadcrumb">Your campus <span>/</span> <b>{active}</b></div><div className="top-actions"><button className="icon-button notification-trigger" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={19} strokeWidth={2} />{notifications.some((item) => !item.read) && <i />}</button><button className="top-avatar" aria-label={session ? 'Account settings' : 'Sign in or register'} onClick={() => setModal('auth')}>{session?.user?.email?.slice(0, 1).toUpperCase() || (account.displayName || 'S').slice(0, 1).toUpperCase()}</button>{notificationsOpen && <section className="notification-popover"><header><b>Notifications</b><button onClick={() => setNotifications((items) => items.map((item) => ({ ...item, read: true })))}>Mark all read</button></header><button className="device-alert-toggle" onClick={enableDeviceAlerts}>{deviceAlerts ? '✓ Device alerts enabled' : 'Enable device alerts'}</button>{notifications.map((item) => <article className={item.read ? '' : 'unread'} key={item.id}><b>{item.title}</b><p>{item.detail}</p></article>)}{!notifications.length && <p className="notification-empty">You’re all caught up.</p>}</section>}</div></header>
+        <header className="topbar"><div className="mobile-brand">campus<span>pulse</span></div><div className="breadcrumb">Your campus <span>/</span> <b>{active}</b></div><div className="top-actions"><button className="icon-button notification-trigger" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}><Bell size={19} strokeWidth={2} />{notifications.some((item) => !item.read) && <i />}</button><button className="top-avatar" aria-label={session ? 'Account settings' : 'Sign in or register'} onClick={() => setModal('auth')}>{session?.user?.email?.slice(0, 1).toUpperCase() || (account.displayName || 'S').slice(0, 1).toUpperCase()}</button>{notificationsOpen && <section className="notification-popover"><header><b>Notifications</b><button onClick={() => setNotifications((items) => items.map((item) => ({ ...item, read: true })))}>Mark all read</button></header><button className="device-alert-toggle" onClick={enableDeviceAlerts}>{deviceAlerts ? '✓ Device alerts enabled' : 'Enable device alerts'}</button>{notifications.map((item) => <article className={item.read ? '' : 'unread'} key={item.id} onClick={() => { setNotifications((items) => items.map((entry) => entry.id === item.id ? { ...entry, read: true } : entry)); setNotificationsOpen(false); const text = `${item.title || ''} ${item.detail || ''}`.toLowerCase(); setActive(/event|meetup/.test(text) ? 'Events' : /message|chat/.test(text) ? 'Messages' : /story/.test(text) ? 'Stories' : /market|listing|hostel/.test(text) ? 'Marketplace' : 'Discover') }}><b>{item.title}</b><p>{item.detail}</p></article>)}{!notifications.length && <p className="notification-empty">You’re all caught up.</p>}<button className="notification-view-all" onClick={() => { setNotificationsOpen(false); setActive('Notifications') }}>View all notifications →</button></section>}</div></header>
 
+        {active === 'Notifications' && <NotificationsCenter notifications={notifications} setNotifications={setNotifications} onEnableAlerts={enableDeviceAlerts} deviceAlerts={deviceAlerts} onOpen={(item) => { setNotificationsOpen(false); const text = `${item.title || ''} ${item.detail || ''}`.toLowerCase(); setActive(/event|meetup/.test(text) ? 'Events' : /message|chat/.test(text) ? 'Messages' : /story/.test(text) ? 'Stories' : /market|listing|hostel/.test(text) ? 'Marketplace' : /verification|moderator/.test(text) ? 'Admin' : 'Discover') }} />}
         {active === 'Admin' && (moderator ? <AdminDashboard notify={notify} /> : <div className="page-wrap"><div className="locked-panel"><h2>Staff access required</h2><p>This dashboard is available only to authorized Campus Pulse moderators.</p></div></div>)}
         {active === 'Discover' && <div className="page-wrap">
           <section className="welcome-row"><div><div className="eyebrow"><span className="pulse-dot" /> YOUR CAMPUS, IN THE MOMENT</div><h1>Find your <em>people.</em></h1><p className="intro">Good energy is closer than you think.</p></div><button className="outline-button" onClick={() => setModal('safety')}><ShieldCheck size={17} /> <span>Community guidelines</span></button></section>
@@ -372,6 +374,7 @@ function App() {
 }
 
 export default App
+
 
 
 
