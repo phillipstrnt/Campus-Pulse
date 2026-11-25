@@ -1,0 +1,27 @@
+.campus-calendar { max-width:570px; margin:22px 0 24px auto; padding:17px 19px 13px; border:1px solid #eee8ef; border-radius:17px; background:linear-gradient(140deg,#fff 55%,#fcf9ff); box-shadow:0 8px 25px #30203309; }
+.calendar-header,.calendar-header>div:first-child,.calendar-month-controls,.calendar-footer { display:flex; align-items:center; }
+.calendar-header { justify-content:space-between; gap:12px; margin-bottom:17px; }
+.calendar-header>div:first-child { gap:10px; }
+.calendar-icon { display:grid; width:35px; height:35px; place-items:center; border-radius:11px; background:#f0e9f7; color:#7450a5; }
+.calendar-header>div:first-child>span:last-child { display:grid; gap:3px; }
+.calendar-header b { color:#3d3543; font:700 12px Manrope,sans-serif; }
+.calendar-header small { color:#99919d; font-size:9px; }
+.calendar-month-controls { gap:9px; }
+.calendar-month-controls b { min-width:115px; text-align:center; font-size:11px; }
+.calendar-month-controls button { display:grid; width:27px; height:27px; place-items:center; border:1px solid #eee8f0; border-radius:8px; background:white; color:#766d7b; cursor:pointer; }
+.calendar-weekdays,.calendar-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); justify-items:center; }
+.calendar-weekdays { margin-bottom:5px; }
+.calendar-weekdays span { display:grid; width:32px; height:25px; place-items:center; color:#a49ca7; font-size:9px; font-weight:700; }
+.calendar-day { position:relative; display:grid; width:32px; height:32px; margin:2px 0; place-items:center; border:0; border-radius:10px; background:transparent; color:#5c5562; font-size:10px; cursor:pointer; }
+.calendar-day:hover { background:#f5f0f8; }
+.calendar-day.today { box-shadow:inset 0 0 0 1px #c9b7dc; color:#6c4c98; font-weight:700; }
+.calendar-day.selected { background:#7450a5; color:white; box-shadow:0 3px 8px #7450a53a; }
+.calendar-day i { position:absolute; bottom:3px; width:4px; height:4px; border-radius:50%; background:#df8587; }
+.calendar-day.selected i { background:#fff; }
+.calendar-day.blank { cursor:default; }
+.calendar-footer { min-height:28px; justify-content:space-between; margin-top:9px; border-top:1px solid #f1edf1; color:#9a929e; font-size:9px; }
+.calendar-footer span { display:flex; align-items:center; gap:6px; }
+.calendar-footer span i { width:5px; height:5px; border-radius:50%; background:#df8587; }
+.calendar-footer button { border:0; background:transparent; color:#715098; font-size:9px; font-weight:700; cursor:pointer; }
+.calendar-footer small { font-size:9px; }
+@media(max-width:700px) { .campus-calendar { margin:18px 0; } }

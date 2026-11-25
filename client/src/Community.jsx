@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import Marketplace from './Marketplace'
 import LiveRooms from './LiveRooms'
+import EventCalendar from './EventCalendar'
 import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 import { Bookmark, Heart, MessageCircle, Share2, Send } from 'lucide-react'
 import './Community.css'
@@ -12,11 +13,17 @@ const starterClips = [
   { id: 'clip-3', author: 'Brian T. · Makerere', caption: 'A tiny solar project from the engineering lab ⚡', tag: '#buildwithus', category: 'Science & tech', tone: 'violet', likes: 98, comments: 7 },
   { id: 'clip-4', author: 'Nadia S. · UCU', caption: 'Rehearsal night before the campus showcase 🎭', tag: '#studentstage', category: 'Drama & arts', tone: 'gold', likes: 122, comments: 11 },
 ]
+const nextWeekday = (weekday, hour) => { const date = new Date(); const delta = (weekday - date.getDay() + 7) % 7 || 7; date.setDate(date.getDate() + delta); date.setHours(hour, 0, 0, 0); return date }
+const localDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const starterEvents = [
-  { id: 'event-1', title: 'Kampala Campus Creators Meetup', place: 'Makerere University · Freedom Square', date: 'Friday, 5:30 PM', detail: 'Bring a friend, meet student creators and share what you’re building.', category: 'CAMPUS EVENT', promoted: true },
-  { id: 'event-2', title: 'The End of Week Link Up', place: 'Design Hub, Wandegeya', date: 'Saturday, 7:00 PM', detail: 'A student-run open mic, good music and new people. 18+ only.', category: 'STUDENT SOCIAL', promoted: false },
+  { id: 'event-1', title: 'Kampala Campus Creators Meetup', place: 'Makerere University · Freedom Square', date: 'Friday, 5:30 PM', startsAt: nextWeekday(5, 17).toISOString(), detail: 'Bring a friend, meet student creators and share what you’re building.', category: 'CAMPUS EVENT', promoted: true },
+  { id: 'event-2', title: 'The End of Week Link Up', place: 'Design Hub, Wandegeya', date: 'Saturday, 7:00 PM', startsAt: nextWeekday(6, 19).toISOString(), detail: 'A student-run open mic, good music and new people. 18+ only.', category: 'STUDENT SOCIAL', promoted: false },
 ]
 const load = (key, fallback) => { try { return JSON.parse(window.localStorage.getItem(key)) || fallback } catch { return fallback } }
+const loadEvents = () => load('campus-pulse-events', starterEvents).map((event) => {
+  const demoEvent = starterEvents.find((starter) => starter.id === event.id)
+  return event.startsAt || !demoEvent ? event : { ...event, startsAt: demoEvent.startsAt }
+})
 
 function Feed({ clips, events, notify, onCreate, session, onMessageAuthor }) {
   const [clipIndex, setClipIndex] = useState(0)
@@ -129,7 +136,9 @@ function Feed({ clips, events, notify, onCreate, session, onMessageAuthor }) {
 
 function Events({ events, setEvents, notify, onCreate, canModerate, session, onDemoModeratorToggle }) {
   const [moderatorMode, setModeratorMode] = useState(false)
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState('')
   const [joined, setJoined] = useState(() => load('campus-pulse-event-rsvps', []))
+  const visibleEvents = selectedCalendarDay ? events.filter((event) => event.startsAt && !Number.isNaN(new Date(event.startsAt).getTime()) && localDateKey(new Date(event.startsAt)) === selectedCalendarDay) : events
   useEffect(() => {
     if (!supabase || !session?.user?.id || !events.length) return undefined
     let active = true
@@ -168,8 +177,9 @@ function Events({ events, setEvents, notify, onCreate, canModerate, session, onD
     <div className="community-heading"><div><span className="community-kicker">DON’T MISS YOUR CAMPUS</span><h1>Campus <em>events</em></h1><p>Verified announcements, student gatherings, and good plans.</p></div><button className="community-primary" onClick={onCreate}>＋ Post an event</button></div>
     <div className="event-alert"><span>♧</span><div><b>Campus alerts are on</b><small>New moderator announcements appear in your feed and here.</small></div><span className="alert-live">ON</span></div>
     <div className="event-filters"><button className="chosen">All campus</button><button onClick={() => notify('Showing events near Makerere')}>Near me</button><button onClick={() => notify('Showing this week’s events')}>This week</button>{canModerate && supabase && <button className={`mod-toggle ${moderatorMode ? 'enabled' : ''}`} onClick={() => { setModeratorMode(!moderatorMode); notify(moderatorMode ? 'Moderator tools closed' : 'Moderator tools opened') }}>⚙ {moderatorMode ? 'Moderator tools: ON' : 'Moderator tools'}</button>}{!supabase && <button className="mod-toggle" onClick={() => { onDemoModeratorToggle(); setModeratorMode(!canModerate) }}>⚙ {canModerate ? 'Exit moderator preview' : 'Moderator preview'}</button>}</div>
+    <EventCalendar events={events} selectedDay={selectedCalendarDay} onSelectDay={setSelectedCalendarDay} />
     {moderatorMode && <div className="mod-banner"><b>Moderator preview mode</b><span>This local demo lets you draft announcements. Production publishing must be restricted to authenticated moderators.</span><button onClick={onCreate}>＋ Create announcement</button></div>}
-    <div className="event-list">{events.map((event) => <article className={`event-card ${event.moderationStatus === 'pending' ? 'event-pending' : ''}`} key={event.id}><div className="event-date"><b>{event.date.split(',')[0].slice(0, 3).toUpperCase()}</b><span>{event.date.split(' ')[1]?.replace(',', '') || '●'}</span><small>{event.date.split(',').slice(1).join(',')}</small></div><div className="event-content"><div className="event-labels"><span>{event.category}</span>{event.promoted && <span className="promoted-label">✦ CAMPUS PICK</span>}{event.moderationStatus === 'pending' && <span className="pending-label">PENDING REVIEW</span>}</div><h2>{event.title}</h2><p className="event-place">⌖ {event.place}</p><p className="event-detail">{event.detail}</p><div className="event-bottom">{canModerate && event.moderationStatus === 'pending' ? <span>Submitted by a campus member</span> : <span>◉ {event.attendees || 24} students interested</span>}{canModerate && event.moderationStatus === 'pending' ? <button onClick={() => approve(event)}>Approve & publish</button> : <button onClick={() => rsvp(event.id)}>{joined.includes(event.id) ? '✓ Going' : 'I’m interested →'}</button>}</div></div><span className="event-art">{event.category.includes('PARTY') || event.category.includes('SOCIAL') ? '♫' : '✳'}</span></article>)}</div>
+    <div className="event-list">{visibleEvents.map((event) => <article className={`event-card ${event.moderationStatus === 'pending' ? 'event-pending' : ''}`} key={event.id}><div className="event-date"><b>{event.date.split(',')[0].slice(0, 3).toUpperCase()}</b><span>{event.date.split(' ')[1]?.replace(',', '') || '●'}</span><small>{event.date.split(',').slice(1).join(',')}</small></div><div className="event-content"><div className="event-labels"><span>{event.category}</span>{event.promoted && <span className="promoted-label">✦ CAMPUS PICK</span>}{event.moderationStatus === 'pending' && <span className="pending-label">PENDING REVIEW</span>}</div><h2>{event.title}</h2><p className="event-place">⌖ {event.place}</p><p className="event-detail">{event.detail}</p><div className="event-bottom">{canModerate && event.moderationStatus === 'pending' ? <span>Submitted by a campus member</span> : <span>◉ {event.attendees || 24} students interested</span>}{canModerate && event.moderationStatus === 'pending' ? <button onClick={() => approve(event)}>Approve & publish</button> : <button onClick={() => rsvp(event.id)}>{joined.includes(event.id) ? '✓ Going' : 'I’m interested →'}</button>}</div></div><span className="event-art">{event.category.includes('PARTY') || event.category.includes('SOCIAL') ? '♫' : '✳'}</span></article>)}{selectedCalendarDay && !visibleEvents.length && <div className="empty-state">No campus events are scheduled on this date. Choose another day or <button className="text-button" onClick={() => setSelectedCalendarDay('')}>show all dates</button>.</div>}</div>
   </div>
 }
 
@@ -184,7 +194,7 @@ function Plans() {
 
 export default function Community({ page, account, notify, session, onMessageAuthor }) {
   const [clips, setClips] = useState(() => supabase && session ? [] : load('campus-pulse-clips', starterClips))
-  const [events, setEvents] = useState(() => supabase && session ? [] : load('campus-pulse-events', starterEvents))
+  const [events, setEvents] = useState(() => supabase && session ? [] : loadEvents())
   const [composer, setComposer] = useState('')
   const [caption, setCaption] = useState('')
   const [title, setTitle] = useState('')
@@ -243,13 +253,13 @@ export default function Community({ page, account, notify, session, onMessageAut
         return { id: `post-${row.id}`, postId: row.id, author: `@${row.profiles?.username || 'campus_member'}`, username: row.profiles?.username, authorId: row.author_id, caption: row.body, category: row.category || 'Campus life', tag: `#${(row.category || 'campuslife').replace(/[^a-z0-9]/gi, '').toLowerCase()}`, tone: 'user', likes: 0, comments: 0, video: isVideo ? mediaUrl : '', image: !isVideo ? mediaUrl : '', link: row.link_url || '' }
       })) : []
       if (active) setClips([...mappedPosts, ...mappedReels])
-      if (!eventResult.error && eventResult.data) setEvents(eventResult.data.map((row) => ({ id:row.id,title:row.title,place:row.venue,date:row.starts_at ? new Date(row.starts_at).toLocaleString() : 'Date to be confirmed',detail:row.details,category:row.is_announcement ? 'CAMPUS ANNOUNCEMENT' : 'CAMPUS EVENT',promoted:row.promoted,moderationStatus:row.moderation_status })))
+      if (!eventResult.error && eventResult.data) setEvents(eventResult.data.map((row) => ({ id:row.id,title:row.title,place:row.venue,date:row.starts_at ? new Date(row.starts_at).toLocaleString() : 'Date to be confirmed',startsAt:row.starts_at,detail:row.details,category:row.is_announcement ? 'CAMPUS ANNOUNCEMENT' : 'CAMPUS EVENT',promoted:row.promoted,moderationStatus:row.moderation_status })))
       if (!profileResult.error) setProfileRole(profileResult.data?.role || 'student')
     }
     loadCloud()
     const channel = supabase.channel('campus-feed-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'campus_events',filter:'moderation_status=eq.approved'},(payload) => {
       const row = payload.new
-      const item = { id:row.id,title:row.title,place:row.venue,date:row.starts_at ? new Date(row.starts_at).toLocaleString() : 'Date to be confirmed',detail:row.details,category:row.is_announcement ? 'CAMPUS ANNOUNCEMENT' : 'CAMPUS EVENT',promoted:row.promoted }
+      const item = { id:row.id,title:row.title,place:row.venue,date:row.starts_at ? new Date(row.starts_at).toLocaleString() : 'Date to be confirmed',startsAt:row.starts_at,detail:row.details,category:row.is_announcement ? 'CAMPUS ANNOUNCEMENT' : 'CAMPUS EVENT',promoted:row.promoted }
       setEvents((current) => [item,...current.filter((event) => event.id !== item.id)])
       if (row.is_announcement) notifyRef.current(`Campus announcement: ${row.title}`)
     }).subscribe()
@@ -319,11 +329,11 @@ export default function Community({ page, account, notify, session, onMessageAut
       const data = { created_by:session.user.id,title:title.trim(),venue:eventVenue.trim(),details:details.trim(),starts_at:eventStartsAt ? new Date(eventStartsAt).toISOString() : null,promoted:modMode || boostEvent,is_announcement:modMode,moderation_status:modMode ? 'approved' : 'pending' }
       const { data: savedEvent, error } = await supabase.from('campus_events').insert(data).select('id,title,venue,details,starts_at,promoted,is_announcement,moderation_status').single()
       if (error) { notify(error.message); return }
-      setEvents((current) => [{ id: savedEvent.id, title: savedEvent.title, place: savedEvent.venue, date: savedEvent.starts_at ? new Date(savedEvent.starts_at).toLocaleString() : 'Date to be confirmed', detail: savedEvent.details, category: savedEvent.is_announcement ? 'CAMPUS ANNOUNCEMENT' : 'CAMPUS EVENT', promoted: savedEvent.promoted, moderationStatus: savedEvent.moderation_status }, ...current])
+      setEvents((current) => [{ id: savedEvent.id, title: savedEvent.title, place: savedEvent.venue, date: savedEvent.starts_at ? new Date(savedEvent.starts_at).toLocaleString() : 'Date to be confirmed', startsAt: savedEvent.starts_at, detail: savedEvent.details, category: savedEvent.is_announcement ? 'CAMPUS ANNOUNCEMENT' : 'CAMPUS EVENT', promoted: savedEvent.promoted, moderationStatus: savedEvent.moderation_status }, ...current])
       setComposer(''); notify(modMode ? 'Campus announcement published and sent to the feed.' : 'Event saved and submitted for moderator review.')
       return
     }
-    const newEvent = { id: `event-${Date.now()}`, title: title.trim(), place: eventVenue.trim() || 'Campus venue to be confirmed', date: eventStartsAt ? new Date(eventStartsAt).toLocaleString() : 'Date to be confirmed', detail: details.trim() || 'More details coming soon.', category: modMode ? 'CAMPUS ANNOUNCEMENT' : 'STUDENT EVENT', promoted: modMode || boostEvent, moderationStatus: 'approved', attendees: 0 }
+    const newEvent = { id: `event-${Date.now()}`, title: title.trim(), place: eventVenue.trim() || 'Campus venue to be confirmed', date: eventStartsAt ? new Date(eventStartsAt).toLocaleString() : 'Date to be confirmed', startsAt: eventStartsAt ? new Date(eventStartsAt).toISOString() : null, detail: details.trim() || 'More details coming soon.', category: modMode ? 'CAMPUS ANNOUNCEMENT' : 'STUDENT EVENT', promoted: modMode || boostEvent, moderationStatus: 'approved', attendees: 0 }
     const next = [newEvent, ...events]
     setEvents(next)
     window.localStorage.setItem('campus-pulse-events', JSON.stringify(next))
