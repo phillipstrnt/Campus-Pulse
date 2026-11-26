@@ -1,5 +1,6 @@
 export const PREVIEW_USERS_KEY = 'campus-pulse-preview-users'
 export const PREVIEW_SESSION_KEY = 'campus-pulse-preview-session'
+export const PREVIEW_DEMO_ACCOUNT = Object.freeze({ email: 'demo@campuspulse.test', password: 'PulseDemo!2026', displayName: 'Campus Demo', username: 'campus_demo', interests: ['Sports', 'Science & tech'] })
 
 async function hashPassword(password, salt) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits'])
@@ -35,6 +36,14 @@ export async function authenticatePreviewUser({ email, password }, storage = loc
   const user = readPreviewUsers(storage).find((item) => item.email === normalizedEmail)
   if (!user || await hashPassword(password, user.salt) !== user.passwordHash) return { error: 'Email or password is incorrect.' }
   return { user }
+}
+
+export async function ensurePreviewDemoAccount(storage = localStorage) {
+  const existing = readPreviewUsers(storage).find((user) => user.email === PREVIEW_DEMO_ACCOUNT.email)
+  if (existing) return existing
+  const result = await registerPreviewUser(PREVIEW_DEMO_ACCOUNT, storage)
+  if (result.error) throw new Error(result.error)
+  return result.user
 }
 
 export function createPreviewSession(user) {

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { authenticatePreviewUser, createPreviewSession, PREVIEW_USERS_KEY, readPreviewUsers, registerPreviewUser } from '../src/previewAccounts.js'
+import { authenticatePreviewUser, createPreviewSession, ensurePreviewDemoAccount, PREVIEW_DEMO_ACCOUNT, PREVIEW_USERS_KEY, readPreviewUsers, registerPreviewUser } from '../src/previewAccounts.js'
 
 class MemoryStorage {
   values = new Map()
@@ -47,4 +47,15 @@ test('rejects malformed email and username values', async () => {
   assert.match((await registerPreviewUser({ ...validAccount, email: 'not-an-email' }, storage)).error, /valid email/)
   assert.match((await registerPreviewUser({ ...validAccount, username: 'x!' }, storage)).error, /username/)
   assert.equal(readPreviewUsers(storage).length, 0)
+})
+
+test('creates a reusable browser demo account without duplicating it', async () => {
+  const storage = new MemoryStorage()
+  const first = await ensurePreviewDemoAccount(storage)
+  const second = await ensurePreviewDemoAccount(storage)
+  const login = await authenticatePreviewUser({ email: PREVIEW_DEMO_ACCOUNT.email, password: PREVIEW_DEMO_ACCOUNT.password }, storage)
+
+  assert.equal(first.id, second.id)
+  assert.equal(login.user.id, first.id)
+  assert.equal(readPreviewUsers(storage).length, 1)
 })
