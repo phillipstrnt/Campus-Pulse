@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
+import { readPreviewBlocks, savePreviewReport, writePreviewBlocks } from './previewModeration'
 
 const demoPeople = [
   { id: 'demo-amina', name: 'Amina K.', school: 'Makerere · Law', color: 'lilac', initials: 'AK', online: true, preview: 'Hey! Are you going to the art fair?' },
@@ -39,7 +40,7 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
   const [draft, setDraft] = useState('')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
-  const [blockedIds, setBlockedIds] = useState([])
+  const [blockedIds, setBlockedIds] = useState(() => supabase ? [] : readPreviewBlocks())
   const [recording, setRecording] = useState(false)
   const [recordingError, setRecordingError] = useState('')
   const [peerTyping, setPeerTyping] = useState(false)
@@ -236,7 +237,15 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
   }
 
   const toggleBlock = async () => {
-    if (!supabase || !userId || !activePeer?.id) { notify('Blocking is available on a connected campus account.'); return }
+    if (!activePeer?.id) return
+    if (!supabase || !userId) {
+      const isBlocked = blockedIds.includes(activePeer.id)
+      const next = isBlocked ? blockedIds.filter((id) => id !== activePeer.id) : [...blockedIds, activePeer.id]
+      writePreviewBlocks(next)
+      setBlockedIds(next)
+      notify(isBlocked ? 'Member unblocked in this browser preview.' : 'Member blocked in this browser preview.')
+      return
+    }
     const isBlocked = blockedIds.includes(activePeer.id)
     const result = isBlocked
       ? await supabase.from('user_blocks').delete().eq('blocker_id', userId).eq('blocked_id', activePeer.id)
@@ -247,7 +256,14 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
   }
 
   const report = async () => {
-    if (!supabase || !userId || !activePeer?.id) { notify('Reports are available on a connected campus account.'); return }
+    if (!activePeer?.id) return
+    if (!supabase || !userId) {
+      try {
+        savePreviewReport({ reportedUserId: activePeer.id, reportedUserName: activePeer.name, reason: 'safety' })
+        notify('Report saved in this browser preview for moderator review.')
+      } catch { notify('This browser could not save the report. Check available storage.') }
+      return
+    }
     const { error } = await supabase.from('content_reports').insert({ reporter_id: userId, reported_user_id: activePeer.id, content_type: 'user', content_id: activePeer.id, reason: 'safety' })
     notify(error ? error.message : 'Report sent to campus moderators for review.')
   }
