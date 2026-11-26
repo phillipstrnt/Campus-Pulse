@@ -53,4 +53,7 @@ From the repository root:
 ```powershell
 npm run build --prefix client
 npm run lint --prefix client
+npm test --prefix client
 ```
+
+The preview account tests cover normalized registration, password hashing, sign-in after reload, and duplicate/invalid account rejection. Preview accounts remain local to the browser; they are not shared demo logins. Use a fresh email and username to try registration, then sign out and sign in with the same details.

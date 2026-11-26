@@ -1,16 +1,8 @@
 import { useState } from 'react'
 import { supabase } from './supabase'
+import { authenticatePreviewUser, createPreviewSession, PREVIEW_SESSION_KEY, registerPreviewUser } from './previewAccounts'
 
 const domainOf = (email) => email.trim().toLowerCase().split('@').pop()
-
-const DEMO_USERS_KEY = 'campus-pulse-preview-users'
-const DEMO_SESSION_KEY = 'campus-pulse-preview-session'
-
-async function hashPassword(password, salt) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits'])
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode(salt), iterations: 120000, hash: 'SHA-256' }, key, 256)
-  return [...new Uint8Array(bits)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}
 
 export default function AuthPanel({ session, onClose, onSessionChange, notify }) {
   const [mode, setMode] = useState('signin')
@@ -31,8 +23,6 @@ export default function AuthPanel({ session, onClose, onSessionChange, notify })
       if (!supabase) {
         const normalizedEmail = email.trim().toLowerCase()
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) { notify('Enter a valid email address.'); return }
-        let users = []
-        try { users = JSON.parse(localStorage.getItem(DEMO_USERS_KEY)) || [] } catch { users = [] }
         if (mode === 'signup') {
           const normalizedUsername = username.trim().replace(/^@/, '').toLowerCase()
           if (!/^[a-z0-9_]{3,24}$/.test(normalizedUsername)) { notify('Choose a username with 3–24 letters, numbers, or underscores.'); return }
@@ -41,21 +31,17 @@ export default function AuthPanel({ session, onClose, onSessionChange, notify })
           const today = new Date()
           const age = today.getFullYear() - dob.getFullYear() - (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0)
           if (!Number.isFinite(dob.getTime()) || age < 18) { notify('Campus Pulse preview is for adults aged 18 and over.'); return }
-          if (users.some((user) => user.email === normalizedEmail)) { notify('That email already has a preview account. Sign in instead.'); return }
-          if (users.some((user) => user.username === normalizedUsername)) { notify('That username is already taken in this browser.'); return }
-          const salt = crypto.randomUUID()
-          const passwordHash = await hashPassword(password, salt)
-          const user = { id: `preview-${crypto.randomUUID()}`, email: normalizedEmail, displayName: name.trim(), username: normalizedUsername, interests, salt, passwordHash }
-          localStorage.setItem(DEMO_USERS_KEY, JSON.stringify([...users, user]))
-          const nextSession = { user: { id: user.id, email: user.email, user_metadata: { display_name: user.displayName, username: user.username, interests: user.interests }, app_metadata: { provider: 'local-preview' } } }
-          localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(nextSession))
+          const registered = await registerPreviewUser({ email: normalizedEmail, password, displayName: name, username: normalizedUsername, interests })
+          if (registered.error) { notify(registered.error); return }
+          const nextSession = createPreviewSession(registered.user)
+          localStorage.setItem(PREVIEW_SESSION_KEY, JSON.stringify(nextSession))
           onSessionChange?.(nextSession)
           notify('Preview account created and saved in this browser. Email ownership was not verified.'); onClose(); return
         }
-        const user = users.find((item) => item.email === normalizedEmail)
-        if (!user || await hashPassword(password, user.salt) !== user.passwordHash) { notify('Email or password is incorrect.'); return }
-        const nextSession = { user: { id: user.id, email: user.email, user_metadata: { display_name: user.displayName, username: user.username, interests: user.interests || [] }, app_metadata: { provider: 'local-preview' } } }
-        localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(nextSession))
+        const authenticated = await authenticatePreviewUser({ email: normalizedEmail, password })
+        if (authenticated.error) { notify(authenticated.error); return }
+        const nextSession = createPreviewSession(authenticated.user)
+        localStorage.setItem(PREVIEW_SESSION_KEY, JSON.stringify(nextSession))
         onSessionChange?.(nextSession)
         notify('Signed in to your browser preview account.'); onClose(); return
       }
@@ -88,5 +74,5 @@ export default function AuthPanel({ session, onClose, onSessionChange, notify })
     } finally { setBusy(false) }
   }
 
-  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="modal-card auth-card"><button className="modal-close" onClick={onClose}>×</button><div className="modal-spark">p</div><div className="eyebrow">YOUR CAMPUS, YOUR PEOPLE</div><h2>{session ? 'Your account' : mode === 'signup' ? 'Join Campus Pulse.' : 'Welcome back.'}</h2>{session ? <><p>Signed in as {session.user.email}{session.user.app_metadata?.provider === 'local-preview' && <><br /><small>Local preview account · email not verified</small></>}</p><button className="primary-button full-button" onClick={async () => { if (supabase) await supabase.auth.signOut(); else { localStorage.removeItem(DEMO_SESSION_KEY); onSessionChange?.(null) } notify('You have been signed out.'); onClose() }}>Sign out</button></> : <><p>{!supabase ? 'Preview mode saves your account and content in this browser only. It does not send an email or verify mailbox ownership.' : mode === 'signup' ? 'Use any valid email. We confirm it by sending a one-time link before you can sign in.' : 'Sign in with the email you confirmed.'}</p>{verificationSent && <div className="email-verification-note" role="status">Check your inbox and spam folder for the confirmation link. The account stays locked until the link is opened.</div>}<form onSubmit={submit}>{mode === 'signup' && <><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" required maxLength={60} /><label className="auth-field">Unique username<input value={username} onChange={(event) => setUsername(event.target.value.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24))} placeholder="e.g. campus_creator" required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]{3,24}" autoComplete="username" /></label><label className="auth-field">Date of birth<input type="date" value={dateOfBirth} onChange={(event) => setDateOfBirth(event.target.value)} max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().slice(0, 10)} required /></label><fieldset className="auth-interests"><legend>Topics you like</legend>{['Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <label key={item}><input type="checkbox" checked={interests.includes(item)} onChange={() => setInterests((current) => current.includes(item) ? current.filter((value) => value !== item) : current.length < 5 ? [...current, item] : current)} />{item}</label>)}</fieldset><label className="auth-consent"><input type="checkbox" checked={adultConfirmed} onChange={(event) => setAdultConfirmed(event.target.checked)} /> I confirm I am 18 or older. Dating is adult-only; explicit nudity is not allowed.</label></>}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" required autoComplete="email" /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password (at least 8 characters)" required minLength={8} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} /><button className="primary-button full-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}</button></form><small className="auth-policy">{supabase ? 'Email confirmation is required for live accounts. Usernames are unique in the database.' : 'Preview users are unique per browser. Add Supabase credentials for cloud accounts and real email verification.'}</small><button className="demo-link" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setVerificationSent(false) }}>{mode === 'signup' ? 'Already a member? Sign in' : 'New here? Create an account'}</button></>}</section></div>
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="modal-card auth-card"><button className="modal-close" onClick={onClose}>×</button><div className="modal-spark">p</div><div className="eyebrow">YOUR CAMPUS, YOUR PEOPLE</div><h2>{session ? 'Your account' : mode === 'signup' ? 'Join Campus Pulse.' : 'Welcome back.'}</h2>{session ? <><p>Signed in as {session.user.email}{session.user.app_metadata?.provider === 'local-preview' && <><br /><small>Local preview account · email not verified</small></>}</p><button className="primary-button full-button" onClick={async () => { if (supabase) await supabase.auth.signOut(); else { localStorage.removeItem(PREVIEW_SESSION_KEY); onSessionChange?.(null) } notify('You have been signed out.'); onClose() }}>Sign out</button></> : <><p>{!supabase ? 'Preview mode saves your account and content in this browser only. It does not send an email or verify mailbox ownership.' : mode === 'signup' ? 'Use any valid email. We confirm it by sending a one-time link before you can sign in.' : 'Sign in with the email you confirmed.'}</p>{verificationSent && <div className="email-verification-note" role="status">Check your inbox and spam folder for the confirmation link. The account stays locked until the link is opened.</div>}<form onSubmit={submit}>{mode === 'signup' && <><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" required maxLength={60} /><label className="auth-field">Unique username<input value={username} onChange={(event) => setUsername(event.target.value.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24))} placeholder="e.g. campus_creator" required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]{3,24}" autoComplete="username" /></label><label className="auth-field">Date of birth<input type="date" value={dateOfBirth} onChange={(event) => setDateOfBirth(event.target.value)} max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().slice(0, 10)} required /></label><fieldset className="auth-interests"><legend>Topics you like</legend>{['Sports','Science & tech','Drama & arts','Entertainment','Dating 18+'].map((item) => <label key={item}><input type="checkbox" checked={interests.includes(item)} onChange={() => setInterests((current) => current.includes(item) ? current.filter((value) => value !== item) : current.length < 5 ? [...current, item] : current)} />{item}</label>)}</fieldset><label className="auth-consent"><input type="checkbox" checked={adultConfirmed} onChange={(event) => setAdultConfirmed(event.target.checked)} /> I confirm I am 18 or older. Dating is adult-only; explicit nudity is not allowed.</label></>}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email address" required autoComplete="email" /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password (at least 8 characters)" required minLength={8} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} /><button className="primary-button full-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}</button></form><small className="auth-policy">{supabase ? 'Email confirmation is required for live accounts. Usernames are unique in the database.' : 'Preview users are unique per browser. Add Supabase credentials for cloud accounts and real email verification.'}</small><button className="demo-link" onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setVerificationSent(false) }}>{mode === 'signup' ? 'Already a member? Sign in' : 'New here? Create an account'}</button></>}</section></div>
 }
