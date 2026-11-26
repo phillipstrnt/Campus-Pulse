@@ -4,7 +4,7 @@ import Marketplace from './Marketplace'
 import LiveRooms from './LiveRooms'
 import EventCalendar from './EventCalendar'
 import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
-import { Bookmark, Heart, MessageCircle, Share2, Send } from 'lucide-react'
+import { Bookmark, Heart, MessageCircle, Share2, Send, BookmarkCheck } from 'lucide-react'
 import './Community.css'
 
 const starterClips = [
@@ -183,6 +183,38 @@ function Events({ events, setEvents, notify, onCreate, canModerate, session, onD
   </div>
 }
 
+function SavedPosts({ clips, session, notify, onBrowse }) {
+  const [savedIds, setSavedIds] = useState(() => load('campus-pulse-clip-favorites', []))
+  const [cloudSavedIds, setCloudSavedIds] = useState([])
+  useEffect(() => {
+    if (!supabase || !session?.user?.id) return undefined
+    let active = true
+    supabase.from('campus_post_favorites').select('post_id').eq('user_id', session.user.id).then(({ data, error }) => {
+      if (!active) return
+      if (error) { notify(error.message); return }
+      setCloudSavedIds((data || []).map((item) => item.post_id))
+    })
+    return () => { active = false }
+  }, [session?.user?.id, notify])
+
+  const savedClips = clips.filter((clip) => savedIds.includes(clip.id) || (clip.postId && cloudSavedIds.includes(clip.postId)))
+  const removeSaved = async (clip) => {
+    if (supabase && session && clip.postId && cloudSavedIds.includes(clip.postId)) {
+      const { error } = await supabase.from('campus_post_favorites').delete().eq('post_id', clip.postId).eq('user_id', session.user.id)
+      if (error) { notify(error.message); return }
+      setCloudSavedIds((ids) => ids.filter((id) => id !== clip.postId))
+    }
+    const next = savedIds.filter((id) => id !== clip.id)
+    setSavedIds(next)
+    localStorage.setItem('campus-pulse-clip-favorites', JSON.stringify(next))
+    notify('Removed from saved posts.')
+  }
+
+  return <div className="community-page saved-posts-page"><div className="community-heading"><div><span className="community-kicker"><BookmarkCheck size={14} /> YOUR CAMPUS COLLECTION</span><h1>Saved <em>moments.</em></h1><p>Clips you saved to come back to later.</p></div><button className="community-primary" onClick={onBrowse}>Explore the feed ↗</button></div>
+    {savedClips.length ? <section className="saved-post-grid">{savedClips.map((clip) => <article className="saved-post-card" key={clip.id}><div className="saved-post-media">{clip.image ? <img src={clip.image} alt="" loading="lazy" /> : clip.video ? <video src={clip.video} controls playsInline preload="metadata" /> : <span>▶</span>}<button aria-label={`Remove ${clip.author}'s post from saved`} onClick={() => removeSaved(clip)}><BookmarkCheck size={17} /></button></div><div className="saved-post-copy"><small>{clip.category || 'CAMPUS MOMENT'}</small><p>{clip.caption || clip.body || 'A campus moment worth remembering.'}</p><span>{clip.author || 'Campus member'}</span></div></article>)}</section> : <div className="saved-post-empty"><span><Bookmark size={24} /></span><h2>Keep the good ones close.</h2><p>Save a post from For You and it will be waiting here when you need it.</p><button className="community-primary" onClick={onBrowse}>Browse campus clips →</button></div>}
+  </div>
+}
+
 function Plans() {
   const tiers = [
     { id: 'plus', name: 'Pulse Plus', price: 'UGX 9,900', label: 'FOR THE CONNECTED', features: ['Unlimited messaging', 'Join live rooms & calls', 'See who likes you', 'Apply for student verification'] },
@@ -192,7 +224,7 @@ function Plans() {
   return <div className="community-page"><div className="community-heading"><div><span className="community-kicker">CAMPUS PULSE OPEN BETA</span><h1>Everything is <em>open.</em></h1><p>We’ve paused subscriptions while campus communities get established.</p></div></div><div className="beta-access-banner"><span>✦</span><div><b>All access is included during the beta.</b><small>Messaging, creator tools, verification applications, live room scheduling, and event boosts have no subscription charge right now.</small></div></div><div className="subscription-grid">{tiers.map((tier) => <article className={`subscription-card ${tier.id === 'creator' ? 'subscription-featured' : ''}`} key={tier.id}><span className="community-kicker">{tier.label}</span><h2>{tier.name}</h2><div className="subscription-price">Included<small> in beta</small></div><ul>{tier.features.map((feature) => <li key={feature}>✓ &nbsp;{feature}</li>)}</ul><button className="subscribed-button" disabled>✓ Available now</button></article>)}</div><p className="plan-note">No payment is collected or subscription activated during this pilot. We’ll announce any future plan changes before billing starts.</p></div>
 }
 
-export default function Community({ page, account, notify, session, onMessageAuthor }) {
+export default function Community({ page, account, notify, session, onMessageAuthor, onBrowseFeed }) {
   const [clips, setClips] = useState(() => supabase && session ? [] : load('campus-pulse-clips', starterClips))
   const [events, setEvents] = useState(() => supabase && session ? [] : loadEvents())
   const [composer, setComposer] = useState('')
@@ -342,6 +374,7 @@ export default function Community({ page, account, notify, session, onMessageAut
 
   return <>
     {page === 'For You' && <><Feed clips={clips} events={events} notify={notify} session={session} onMessageAuthor={onMessageAuthor} onCreate={() => create('post')} />{canModerate && <section className="reel-review-queue"><div><span className="community-kicker">CAMPUS TRUST</span><h2>Reels waiting for review <small>{pendingReels.length}</small></h2><p>Review videos before they reach student feeds.</p></div>{pendingReels.length ? pendingReels.map((reel) => <article key={reel.id} className="reel-review-card"><video src={reel.video} controls playsInline /><div><b>{reel.author}</b><small>{reel.category} · {reel.caption}</small><span><button onClick={() => reviewReel(reel, 'rejected')}>Reject</button><button onClick={() => reviewReel(reel, 'approved')}>Approve</button></span></div></article>) : <div className="empty-feed">No videos are waiting for review.</div>}</section>}</>}
+    {page === 'Saved' && <SavedPosts clips={clips} session={session} notify={notify} onBrowse={onBrowseFeed} />}
     {page === 'Events' && <Events events={events} setEvents={setEvents} notify={notify} canModerate={canModerate} session={session} onDemoModeratorToggle={() => { setDemoModerator((current) => !current); notify(demoModerator ? 'Moderator preview closed' : 'Moderator preview enabled for this demo only') }} onCreate={() => create(canModerate ? 'announcement' : 'event')} />}
     {page === 'Membership' && <Plans />}
     {page === 'Live rooms' && <LiveRooms account={account} session={session} moderator={canModerate} notify={notify} onUpgrade={() => notify('Choose Pulse Plus in Membership to schedule or join live rooms.')} />}

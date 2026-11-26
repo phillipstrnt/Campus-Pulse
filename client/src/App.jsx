@@ -6,7 +6,7 @@ import AdminDashboard from './AdminDashboard'
 import NotificationsCenter from './NotificationsCenter'
 import { supabase } from './supabase'
 import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
-import { Bell, BookOpenText, CalendarDays, Clapperboard, Compass, Heart, House, MessageCircle, Radio, ShieldCheck, ShoppingBag, Sparkles } from 'lucide-react'
+import { Bell, BookOpenText, Bookmark, CalendarDays, Clapperboard, Compass, Heart, House, MessageCircle, Radio, ShieldCheck, ShoppingBag, Sparkles } from 'lucide-react'
 import './App.css'
 import './photography.css'
 
@@ -32,7 +32,7 @@ const stories = [
   { name: 'Nadia', initials: 'NS', color: 'mint', fresh: true },
   { name: 'Brian', initials: 'BT', color: 'blue', fresh: true },
 ]
-const navItems = [['Discover', Compass], ['For You', Clapperboard], ['Events', CalendarDays], ['Messages', MessageCircle], ['Live rooms', Radio], ['Likes', Heart], ['Stories', BookOpenText], ['Marketplace', ShoppingBag], ['Hostels', House], ['Membership', Sparkles]]
+const navItems = [['Discover', Compass], ['For You', Clapperboard], ['Events', CalendarDays], ['Messages', MessageCircle], ['Live rooms', Radio], ['Likes', Heart], ['Saved', Bookmark], ['Stories', BookOpenText], ['Marketplace', ShoppingBag], ['Hostels', House], ['Membership', Sparkles]]
 const mobileNavItems = navItems
 const PREVIEW_SESSION_KEY = 'campus-pulse-preview-session'
 
@@ -352,7 +352,7 @@ function App() {
           <section className="bottom-banner"><span className="banner-icon">✦</span><div><b>Good things start with hello.</b><span>Join a live room and meet your campus, together.</span></div><button onClick={() => setActive('Live rooms')}>Explore live rooms <span>→</span></button><div className="banner-orbit orbit-one" /><div className="banner-orbit orbit-two" /></section>
           <footer className="page-footer"><span>© 2026 Campus Pulse</span><span><button onClick={() => setModal('safety')}>Stay safe</button><button onClick={() => setModal('safety')}>Community guidelines</button><button onClick={() => notify('Privacy settings are coming soon')}>Privacy</button></span><span>Made for campus life in Uganda <b>♥</b></span></footer>
         </div>}
-        {['For You', 'Events', 'Membership', 'Marketplace', 'Hostels'].includes(active) && <Community page={active} account={betaAccount} notify={notify} session={session} onMessageAuthor={openChat} />}
+        {['For You', 'Saved', 'Events', 'Membership', 'Marketplace', 'Hostels'].includes(active) && <Community page={active} account={betaAccount} notify={notify} session={session} onMessageAuthor={openChat} onBrowseFeed={() => setActive('For You')} />}
 
           {active === 'Messages' && <Messaging session={session} isPlus={isPlus} selectedPerson={selectedPerson} notify={notify} onUpgrade={() => notify('Messaging is open during the Campus Pulse beta.')} />}
 
