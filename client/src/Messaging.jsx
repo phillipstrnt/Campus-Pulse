@@ -44,9 +44,13 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
   const [recording, setRecording] = useState(false)
   const [recordingError, setRecordingError] = useState('')
   const [peerTyping, setPeerTyping] = useState(false)
+  const [selfTyping, setSelfTyping] = useState(false)
   const recorderRef = useRef(null)
   const streamRef = useRef(null)
   const typingTimerRef = useRef(null)
+  const peerTypingTimerRef = useRef(null)
+  const selfTypingTimerRef = useRef(null)
+  const typingChannelRef = useRef(null)
   const userId = session?.user?.id
   const filteredConversations = conversations.filter((item) => `${item.peer.name} ${item.peer.school} ${item.preview}`.toLowerCase().includes(search.toLowerCase()))
   const visibleDirectory = useMemo(() => directory.filter((person) => `${person.name} ${person.school}`.toLowerCase().includes(search.toLowerCase())), [directory, search])
@@ -123,8 +127,23 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
       if (error) notify(error.message)
     }
     loadThread()
-    const channel = supabase.channel(`conversation-${activeConversation}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConversation}` }, loadThread).subscribe()
-    return () => { active = false; supabase.removeChannel(channel) }
+    const channel = supabase.channel(`conversation-${activeConversation}`, { config: { broadcast: { self: false } } })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConversation}` }, loadThread)
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!active || payload?.userId === userId) return
+        setPeerTyping(true)
+        if (peerTypingTimerRef.current) window.clearTimeout(peerTypingTimerRef.current)
+        peerTypingTimerRef.current = window.setTimeout(() => setPeerTyping(false), 1800)
+      })
+      .subscribe()
+    typingChannelRef.current = channel
+    return () => {
+      active = false
+      typingChannelRef.current = null
+      if (peerTypingTimerRef.current) window.clearTimeout(peerTypingTimerRef.current)
+      setPeerTyping(false)
+      supabase.removeChannel(channel)
+    }
   }, [activeConversation, userId, notify])
 
   const openPeer = async (peer) => {
@@ -139,6 +158,11 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
     if (error) { notify(error.message); return }
     setActiveConversation(data)
     await loadConversationList()
+  }
+
+  const sendTyping = () => {
+    if (!supabase || !activeConversation || !userId || !typingChannelRef.current) return
+    typingChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { userId } })
   }
 
   const send = async (event) => {
@@ -179,6 +203,8 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
 
   useEffect(() => () => {
     if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current)
+    if (peerTypingTimerRef.current) window.clearTimeout(peerTypingTimerRef.current)
+    if (selfTypingTimerRef.current) window.clearTimeout(selfTypingTimerRef.current)
     streamRef.current?.getTracks().forEach((track) => track.stop())
   }, [])
 
@@ -269,5 +295,15 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
   }
 
   if (!isPlus) return <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">Pick up where the good energy left off.</p></section><div className="locked-panel"><span className="lock-icon">✦</span><h2>Your next conversation is waiting.</h2><p>Pulse Plus members can send messages and keep the connection going.</p><button className="primary-button" onClick={onUpgrade}>Unlock messaging <span>→</span></button></div></div>
-  return <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">WhatsApp-style campus chat with voice notes and live typing feedback.</p></section><div className="inbox-layout"><aside className="inbox-list"><div className="inbox-search">⌕ <input placeholder="Search campus members" value={search} onChange={(event) => setSearch(event.target.value)} /></div>{filteredConversations.map((conversation) => <button className={`inbox-person ${activePeer?.id === conversation.peer.id ? 'active' : ''}`} key={conversation.id} onClick={() => { setActivePeer(conversation.peer); setActiveConversation(conversation.id) }}><span className={`avatar avatar-${conversation.peer.color}`}>{conversation.peer.initials}</span><span><b>{conversation.peer.name}</b><small>{conversation.preview}</small></span></button>)}<div className="inbox-directory-title">CAMPUS MEMBERS · {visibleDirectory.length}</div>{visibleDirectory.map((person) => <button className={`inbox-person ${activePeer?.id === person.id ? 'active' : ''}`} key={person.id} onClick={() => openPeer(person)} disabled={busy}><span className={`avatar avatar-${person.color}`}>{person.initials}</span><span><b>{person.name}</b><small>{person.school}</small></span><small className="message-time">{person.online ? '●' : '→'}</small></button>)}</aside><section className="chat-panel">{activePeer ? <><header className="chat-header"><span className={`avatar avatar-${activePeer.color || 'lilac'}`}>{activePeer.initials || 'CP'}</span><span><b>{activePeer.name}</b><small>{peerTyping ? 'typing…' : activePeer.online ? 'online' : activePeer.school || 'Campus member'}{blockedIds.includes(activePeer.id) ? ' · blocked' : ''}</small></span><button onClick={toggleBlock}>{blockedIds.includes(activePeer.id) ? 'Unblock' : 'Block'}</button><button onClick={report}>Report</button></header><div className="chat-messages"><span className="date-label">PRIVATE CAMPUS CHAT</span>{thread.map((message) => <div key={message.id} className={`bubble ${message.sender_id === userId || message.sender_id === 'me' ? 'sent' : 'received'}`}>{message.body}{message.audio_url && <audio className="voice-note" controls src={message.audio_url} />}{message.audio_path && <audio className="voice-note" controls src={message.audio_url} />}</div>)}{peerTyping && <span className="typing-indicator">{activePeer.name} is typing <i>•••</i></span>}</div><form className="chat-compose" onSubmit={send}><button type="button" aria-label={recording ? 'Stop voice note' : 'Record voice note'} className={recording ? 'recording-button' : ''} onClick={recording ? stopVoiceNote : startVoiceNote}>{recording ? '■' : '🎙'}</button><input placeholder={blockedIds.includes(activePeer.id) ? 'Unblock this member to message' : 'Message…'} value={draft} onChange={(event) => { setDraft(event.target.value); if (!supabase && event.target.value.trim()) { setPeerTyping(false); if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current) } }} disabled={blockedIds.includes(activePeer.id) || busy} maxLength={2000} /><button className="send-button" aria-label="Send message" disabled={!draft.trim() || busy}>↑</button></form>{recording && <small className="chat-hint recording-hint">● Recording voice note · click ■ to send</small>}{recordingError && <small className="chat-hint" role="status">{recordingError}</small>}{supabase && !activeConversation && <small className="chat-hint">Send your first note to create a private conversation.</small>}</> : <div className="chat-empty"><span className="lock-icon">✉</span><h2>Start a campus conversation.</h2><p>Choose a campus member to connect.</p></div>}</section></div>{!supabase && <p className="chat-hint">Demo messages stay in this browser. Connect Supabase for secure shared conversations.</p>}</div>
+  return <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">WhatsApp-style campus chat with voice notes and live typing feedback.</p></section><div className="inbox-layout"><aside className="inbox-list"><div className="inbox-search">⌕ <input placeholder="Search campus members" value={search} onChange={(event) => setSearch(event.target.value)} /></div>{filteredConversations.map((conversation) => <button className={`inbox-person ${activePeer?.id === conversation.peer.id ? 'active' : ''}`} key={conversation.id} onClick={() => { setActivePeer(conversation.peer); setActiveConversation(conversation.id) }}><span className={`avatar avatar-${conversation.peer.color}`}>{conversation.peer.initials}</span><span><b>{conversation.peer.name}</b><small>{conversation.preview}</small></span></button>)}<div className="inbox-directory-title">CAMPUS MEMBERS · {visibleDirectory.length}</div>{visibleDirectory.map((person) => <button className={`inbox-person ${activePeer?.id === person.id ? 'active' : ''}`} key={person.id} onClick={() => openPeer(person)} disabled={busy}><span className={`avatar avatar-${person.color}`}>{person.initials}</span><span><b>{person.name}</b><small>{person.school}</small></span><small className="message-time">{person.online ? '●' : '→'}</small></button>)}</aside><section className="chat-panel">{activePeer ? <><header className="chat-header"><span className={`avatar avatar-${activePeer.color || 'lilac'}`}>{activePeer.initials || 'CP'}</span><span><b>{activePeer.name}</b><small>{peerTyping ? 'typing…' : selfTyping ? 'You are typing…' : activePeer.online ? 'online' : activePeer.school || 'Campus member'}{blockedIds.includes(activePeer.id) ? ' · blocked' : ''}</small></span><button onClick={toggleBlock}>{blockedIds.includes(activePeer.id) ? 'Unblock' : 'Block'}</button><button onClick={report}>Report</button></header><div className="chat-messages"><span className="date-label">PRIVATE CAMPUS CHAT</span>{thread.map((message) => <div key={message.id} className={`bubble ${message.sender_id === userId || message.sender_id === 'me' ? 'sent' : 'received'}`}>{message.body}{message.audio_url && <audio className="voice-note" controls src={message.audio_url} />}{message.audio_path && <audio className="voice-note" controls src={message.audio_url} />}</div>)}{peerTyping && <span className="typing-indicator">{activePeer.name} is typing <i>•••</i></span>}</div><form className="chat-compose" onSubmit={send}><button type="button" aria-label={recording ? 'Stop voice note' : 'Record voice note'} className={recording ? 'recording-button' : ''} onClick={recording ? stopVoiceNote : startVoiceNote}>{recording ? '■' : '🎙'}</button><input placeholder={blockedIds.includes(activePeer.id) ? 'Unblock this member to message' : 'Message…'} value={draft} onChange={(event) => {
+        const value = event.target.value
+        setDraft(value)
+        setSelfTyping(Boolean(value.trim()))
+        if (selfTypingTimerRef.current) window.clearTimeout(selfTypingTimerRef.current)
+        if (value.trim()) {
+          sendTyping()
+          selfTypingTimerRef.current = window.setTimeout(() => setSelfTyping(false), 1800)
+        } else setSelfTyping(false)
+        if (!supabase && value.trim()) { setPeerTyping(false); if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current) }
+      }} disabled={blockedIds.includes(activePeer.id) || busy} maxLength={2000} /><button className="send-button" aria-label="Send message" disabled={!draft.trim() || busy}>↑</button></form>{recording && <small className="chat-hint recording-hint">● Recording voice note · click ■ to send</small>}{recordingError && <small className="chat-hint" role="status">{recordingError}</small>}{supabase && !activeConversation && <small className="chat-hint">Send your first note to create a private conversation.</small>}</> : <div className="chat-empty"><span className="lock-icon">✉</span><h2>Start a campus conversation.</h2><p>Choose a campus member to connect.</p></div>}</section></div>{!supabase && <p className="chat-hint">Demo messages stay in this browser. Connect Supabase for secure shared conversations.</p>}</div>
 }
