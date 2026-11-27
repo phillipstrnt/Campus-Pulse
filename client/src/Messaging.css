@@ -1,0 +1,22 @@
+.bot-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #e9e0f1;
+  border-radius: 10px;
+  background: linear-gradient(110deg, #f8f2fc, #fff7ef);
+  color: #70677a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bot-disclosure > span:first-child {
+  color: #8058ae;
+  font-size: 16px;
+}
+
+.bot-disclosure b {
+  color: #493a58;
+}

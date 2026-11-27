@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import { getLocalMediaUrl, saveLocalMedia } from './localMedia'
 import { readPreviewBlocks, savePreviewReport, writePreviewBlocks } from './previewModeration'
+import { generateDemoReply } from './demoChatbot'
+import './Messaging.css'
 
-const demoPeople = [
+const demoPeople = ([
   { id: 'demo-amina', name: 'Amina K.', school: 'Makerere · Law', color: 'lilac', initials: 'AK', online: true, preview: 'Hey! Are you going to the art fair?' },
   { id: 'demo-joel', name: 'Joel M.', school: 'Kyambogo · Design', color: 'peach', initials: 'JM', online: true, preview: 'That playlist is so good 😭' },
   { id: 'demo-nadia', name: 'Nadia S.', school: 'UCU · Business', color: 'mint', initials: 'NS', online: false, preview: 'We should grab coffee sometime' },
@@ -17,26 +19,31 @@ const demoPeople = [
   { id: 'demo-esther', name: 'Esther B.', school: 'Victoria University · Arts', color: 'mint', initials: 'EB', online: true, preview: 'See you at rehearsal!' },
   { id: 'demo-peter', name: 'Peter L.', school: 'Kyambogo · Sports Science', color: 'blue', initials: 'PL', online: false, preview: 'Game this weekend?' },
   { id: 'demo-mariam', name: 'Mariam W.', school: 'UCU · Law', color: 'peach', initials: 'MW', online: true, preview: 'Thanks for the notes ✨' },
-]
+]).map((person) => ({ ...person, isDemoBot: true }))
 const initialThread = [
   { id: 'demo-1', sender_id: 'peer', body: 'Hey! Are you going to the art fair this weekend?', created_at: new Date().toISOString() },
   { id: 'demo-2', sender_id: 'me', body: 'I was just thinking about that! It looks so fun ✨', created_at: new Date().toISOString() },
   { id: 'demo-3', sender_id: 'peer', body: 'Right? We should check it out together!', created_at: new Date().toISOString() },
 ]
-const threadStorageKey = (peerId) => `campus-pulse-thread-${peerId}`
-const readDemoThread = (peerId) => {
-  try { const saved = JSON.parse(localStorage.getItem(threadStorageKey(peerId))); return Array.isArray(saved) ? saved : initialThread } catch { return initialThread }
+const threadStorageKey = (peerId, ownerId) => `campus-pulse-thread-${ownerId}-${peerId}`
+const readDemoThread = (peerId, ownerId) => {
+  try {
+    const legacyThread = ownerId === 'guest' ? localStorage.getItem(`campus-pulse-thread-${peerId}`) : null
+    const saved = JSON.parse(localStorage.getItem(threadStorageKey(peerId, ownerId)) || legacyThread || 'null')
+    return Array.isArray(saved) ? saved : initialThread
+  } catch { return initialThread }
 }
-const saveDemoThread = (peerId, messages) => {
-  try { localStorage.setItem(threadStorageKey(peerId), JSON.stringify(messages.map(({ audio_url: _audioUrl, ...message }) => message))) } catch { /* Keep the active conversation usable when browser storage is full. */ }
+const saveDemoThread = (peerId, messages, ownerId) => {
+  try { localStorage.setItem(threadStorageKey(peerId, ownerId), JSON.stringify(messages.map(({ audio_url: _audioUrl, ...message }) => message))) } catch { /* Keep the active conversation usable when browser storage is full. */ }
 }
 
 export default function Messaging({ session, isPlus, selectedPerson, notify, onUpgrade }) {
+  const demoOwnerId = session?.user?.id || 'guest'
   const [directory, setDirectory] = useState(() => supabase && session ? [] : demoPeople)
   const [conversations, setConversations] = useState([])
   const [activePeer, setActivePeer] = useState(() => supabase && session ? null : (selectedPerson ? demoPeople.find((person) => person.name === selectedPerson.name) || demoPeople[0] : demoPeople[0]))
   const [activeConversation, setActiveConversation] = useState(null)
-  const [thread, setThread] = useState(() => readDemoThread(activePeer?.id || 'demo-amina'))
+  const [thread, setThread] = useState(() => readDemoThread(activePeer?.id || 'demo-amina', demoOwnerId))
   const [draft, setDraft] = useState('')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
@@ -45,27 +52,31 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
   const [recordingError, setRecordingError] = useState('')
   const [peerTyping, setPeerTyping] = useState(false)
   const [selfTyping, setSelfTyping] = useState(false)
+  const activeChatRef = useRef({ peer: activePeer, ownerId: demoOwnerId })
   const recorderRef = useRef(null)
   const streamRef = useRef(null)
   const typingTimerRef = useRef(null)
   const peerTypingTimerRef = useRef(null)
   const selfTypingTimerRef = useRef(null)
+  const botReplyTimersRef = useRef(new Map())
   const typingChannelRef = useRef(null)
   const userId = session?.user?.id
   const filteredConversations = conversations.filter((item) => `${item.peer.name} ${item.peer.school} ${item.preview}`.toLowerCase().includes(search.toLowerCase()))
   const visibleDirectory = useMemo(() => directory.filter((person) => `${person.name} ${person.school}`.toLowerCase().includes(search.toLowerCase())), [directory, search])
 
+  useEffect(() => { activeChatRef.current = { peer: activePeer, ownerId: demoOwnerId } }, [activePeer, demoOwnerId])
+
   useEffect(() => {
     if (supabase || !activePeer?.id) return undefined
     let active = true
     const hydrate = async () => {
-      const messages = readDemoThread(activePeer.id)
+      const messages = readDemoThread(activePeer.id, demoOwnerId)
       const hydrated = await Promise.all(messages.map(async (message) => message.audioKey ? { ...message, audio_url: await getLocalMediaUrl(message.audioKey) } : message))
       if (active) setThread(hydrated)
     }
     hydrate()
     return () => { active = false }
-  }, [activePeer?.id])
+  }, [activePeer?.id, demoOwnerId])
 
   const loadConversationList = useCallback(async () => {
     if (!supabase || !userId) return
@@ -148,10 +159,11 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
 
   const openPeer = async (peer) => {
     if (!isPlus) { onUpgrade(); return }
+    setPeerTyping(false)
     setActivePeer(peer)
     const existing = conversations.find((item) => item.peer.id === peer.id)
     if (existing) { setActiveConversation(existing.id); return }
-    if (!supabase || !userId) { setActiveConversation(null); setThread(readDemoThread(peer.id)); return }
+    if (!supabase || !userId) { setActiveConversation(null); setThread(readDemoThread(peer.id, demoOwnerId)); return }
     setBusy(true)
     const { data, error } = await supabase.rpc('create_campus_conversation', { target_user_id: peer.id })
     setBusy(false)
@@ -184,27 +196,35 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
       if (error) { notify(error.message); return }
       setDraft(''); await loadConversationList(); return
     }
-    setThread((current) => {
-      const next = [...current, { id: `demo-${Date.now()}`, sender_id: 'me', body, created_at: new Date().toISOString() }]
-      saveDemoThread(activePeer.id, next)
-      return next
-    })
+    const demoPeer = activePeer
+    const savedThread = readDemoThread(demoPeer.id, demoOwnerId)
+    const nextThread = [...savedThread, { id: `demo-${crypto.randomUUID()}`, sender_id: 'me', body, created_at: new Date().toISOString() }]
+    saveDemoThread(demoPeer.id, nextThread, demoOwnerId)
+    setThread(nextThread)
     setDraft('')
     setPeerTyping(true)
-    window.setTimeout(() => {
-      setThread((current) => {
-        const next = [...current, { id: `demo-reply-${Date.now()}`, sender_id: 'peer', body: ['That sounds good 😊', 'Haha, I was thinking the same!', 'Nice! Let me know what time works ✨'][Math.floor(Math.random() * 3)], created_at: new Date().toISOString() }]
-        saveDemoThread(activePeer.id, next)
-        return next
-      })
-      setPeerTyping(false)
-    }, 1300)
+    const timerKey = `${demoOwnerId}:${demoPeer.id}`
+    if (botReplyTimersRef.current.has(timerKey)) window.clearTimeout(botReplyTimersRef.current.get(timerKey))
+    const replyTimer = window.setTimeout(() => {
+      const history = readDemoThread(demoPeer.id, demoOwnerId)
+      const reply = { id: `demo-reply-${crypto.randomUUID()}`, sender_id: 'peer', body: generateDemoReply(demoPeer, history), created_at: new Date().toISOString(), isDemoBot: true }
+      const updatedThread = [...history, reply]
+      saveDemoThread(demoPeer.id, updatedThread, demoOwnerId)
+      botReplyTimersRef.current.delete(timerKey)
+      if (activeChatRef.current.peer?.id === demoPeer.id && activeChatRef.current.ownerId === demoOwnerId) {
+        setThread(updatedThread)
+        setPeerTyping(false)
+      }
+    }, 1100)
+    botReplyTimersRef.current.set(timerKey, replyTimer)
   }
 
   useEffect(() => () => {
     if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current)
     if (peerTypingTimerRef.current) window.clearTimeout(peerTypingTimerRef.current)
     if (selfTypingTimerRef.current) window.clearTimeout(selfTypingTimerRef.current)
+    for (const timer of botReplyTimersRef.current.values()) window.clearTimeout(timer)
+    botReplyTimersRef.current.clear()
     streamRef.current?.getTracks().forEach((track) => track.stop())
   }, [])
 
@@ -245,7 +265,7 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
           const audioUrl = URL.createObjectURL(audio)
           setThread((current) => {
             const next = [...current, { id: `demo-voice-${Date.now()}`, sender_id: 'me', body: 'Voice note', audioKey, audio_url: audioUrl, created_at: new Date().toISOString() }]
-            saveDemoThread(activePeer.id, next)
+            saveDemoThread(activePeer.id, next, demoOwnerId)
             return next
           })
         } catch { setRecordingError('This browser could not save the voice note. Check available storage.') }
@@ -294,8 +314,8 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
     notify(error ? error.message : 'Report sent to campus moderators for review.')
   }
 
-  if (!isPlus) return <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">Pick up where the good energy left off.</p></section><div className="locked-panel"><span className="lock-icon">✦</span><h2>Your next conversation is waiting.</h2><p>Pulse Plus members can send messages and keep the connection going.</p><button className="primary-button" onClick={onUpgrade}>Unlock messaging <span>→</span></button></div></div>
-  return <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">WhatsApp-style campus chat with voice notes and live typing feedback.</p></section><div className="inbox-layout"><aside className="inbox-list"><div className="inbox-search">⌕ <input placeholder="Search campus members" value={search} onChange={(event) => setSearch(event.target.value)} /></div>{filteredConversations.map((conversation) => <button className={`inbox-person ${activePeer?.id === conversation.peer.id ? 'active' : ''}`} key={conversation.id} onClick={() => { setActivePeer(conversation.peer); setActiveConversation(conversation.id) }}><span className={`avatar avatar-${conversation.peer.color}`}>{conversation.peer.initials}</span><span><b>{conversation.peer.name}</b><small>{conversation.preview}</small></span></button>)}<div className="inbox-directory-title">CAMPUS MEMBERS · {visibleDirectory.length}</div>{visibleDirectory.map((person) => <button className={`inbox-person ${activePeer?.id === person.id ? 'active' : ''}`} key={person.id} onClick={() => openPeer(person)} disabled={busy}><span className={`avatar avatar-${person.color}`}>{person.initials}</span><span><b>{person.name}</b><small>{person.school}</small></span><small className="message-time">{person.online ? '●' : '→'}</small></button>)}</aside><section className="chat-panel">{activePeer ? <><header className="chat-header"><span className={`avatar avatar-${activePeer.color || 'lilac'}`}>{activePeer.initials || 'CP'}</span><span><b>{activePeer.name}</b><small>{peerTyping ? 'typing…' : selfTyping ? 'You are typing…' : activePeer.online ? 'online' : activePeer.school || 'Campus member'}{blockedIds.includes(activePeer.id) ? ' · blocked' : ''}</small></span><button onClick={toggleBlock}>{blockedIds.includes(activePeer.id) ? 'Unblock' : 'Block'}</button><button onClick={report}>Report</button></header><div className="chat-messages"><span className="date-label">PRIVATE CAMPUS CHAT</span>{thread.map((message) => <div key={message.id} className={`bubble ${message.sender_id === userId || message.sender_id === 'me' ? 'sent' : 'received'}`}>{message.body}{message.audio_url && <audio className="voice-note" controls src={message.audio_url} />}{message.audio_path && <audio className="voice-note" controls src={message.audio_url} />}</div>)}{peerTyping && <span className="typing-indicator">{activePeer.name} is typing <i>•••</i></span>}</div><form className="chat-compose" onSubmit={send}><button type="button" aria-label={recording ? 'Stop voice note' : 'Record voice note'} className={recording ? 'recording-button' : ''} onClick={recording ? stopVoiceNote : startVoiceNote}>{recording ? '■' : '🎙'}</button><input placeholder={blockedIds.includes(activePeer.id) ? 'Unblock this member to message' : 'Message…'} value={draft} onChange={(event) => {
+  if (!isPlus) return <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">Pick up where the good energy left off. Demo chatbots are labelled and remember this browser’s chat.</p></section><div className="locked-panel"><span className="lock-icon">✦</span><h2>Your next conversation is waiting.</h2><p>Pulse Plus members can send messages and keep the connection going.</p><button className="primary-button" onClick={onUpgrade}>Unlock messaging <span>→</span></button></div></div>
+  return <div className="page-wrap"><section className="page-title"><div className="eyebrow">YOUR CONVERSATIONS</div><h1>Messages <em>that move.</em></h1><p className="intro">WhatsApp-style campus chat with voice notes and live typing feedback.</p></section><div className="inbox-layout"><aside className="inbox-list"><div className="inbox-search">⌕ <input placeholder="Search campus members" value={search} onChange={(event) => setSearch(event.target.value)} /></div>{filteredConversations.map((conversation) => <button className={`inbox-person ${activePeer?.id === conversation.peer.id ? 'active' : ''}`} key={conversation.id} onClick={() => { setActivePeer(conversation.peer); setActiveConversation(conversation.id) }}><span className={`avatar avatar-${conversation.peer.color}`}>{conversation.peer.initials}</span><span><b>{conversation.peer.name}</b><small>{conversation.preview}</small></span></button>)}<div className="inbox-directory-title">CAMPUS MEMBERS · {visibleDirectory.length}</div>{visibleDirectory.map((person) => <button className={`inbox-person ${activePeer?.id === person.id ? 'active' : ''}`} key={person.id} onClick={() => openPeer(person)} disabled={busy}><span className={`avatar avatar-${person.color}`}>{person.initials}</span><span><b>{person.name}</b><small>{person.isDemoBot ? 'Automated demo chat' : person.school}</small></span><small className="message-time">{person.isDemoBot ? 'BOT' : person.online ? '●' : '→'}</small></button>)}</aside><section className="chat-panel">{activePeer ? <><header className="chat-header"><span className={`avatar avatar-${activePeer.color || 'lilac'}`}>{activePeer.initials || 'CP'}</span><span><b>{activePeer.name}</b><small>{peerTyping ? 'typing…' : selfTyping ? 'You are typing…' : activePeer.isDemoBot ? 'Campus Pulse demo chatbot · saved on this device' : activePeer.online ? 'online' : activePeer.school || 'Campus member'}{blockedIds.includes(activePeer.id) ? ' · blocked' : ''}</small></span><button onClick={toggleBlock}>{blockedIds.includes(activePeer.id) ? 'Unblock' : 'Block'}</button><button onClick={report}>Report</button></header>{activePeer.isDemoBot && <div className="bot-disclosure"><span aria-hidden="true">✦</span><span><b>Demo chatbot</b> · automated replies use this chat history; no mind-reading.</span></div>}<div className="chat-messages"><span className="date-label">PRIVATE CAMPUS CHAT</span>{thread.map((message) => <div key={message.id} className={`bubble ${message.sender_id === userId || message.sender_id === 'me' ? 'sent' : 'received'}`}>{message.body}{message.audio_url && <audio className="voice-note" controls src={message.audio_url} />}{message.audio_path && <audio className="voice-note" controls src={message.audio_url} />}</div>)}{peerTyping && <span className="typing-indicator">{activePeer.name} is typing <i>•••</i></span>}</div><form className="chat-compose" onSubmit={send}><button type="button" aria-label={recording ? 'Stop voice note' : 'Record voice note'} className={recording ? 'recording-button' : ''} onClick={recording ? stopVoiceNote : startVoiceNote}>{recording ? '■' : '🎙'}</button><input placeholder={blockedIds.includes(activePeer.id) ? 'Unblock this member to message' : 'Message…'} value={draft} onChange={(event) => {
         const value = event.target.value
         setDraft(value)
         setSelfTyping(Boolean(value.trim()))
