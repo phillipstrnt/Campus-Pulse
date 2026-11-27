@@ -20,3 +20,100 @@
 .bot-disclosure b {
   color: #493a58;
 }
+
+.chat-setup-card {
+  margin: 12px 14px 4px;
+  padding: 16px;
+  border: 1px solid #e8dff0;
+  border-radius: 14px;
+  background: linear-gradient(125deg, #faf6fd, #fff8f0 70%, #f4fbf7);
+  color: #70677a;
+}
+
+.chat-setup-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.chat-setup-cloud {
+  display: grid;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 14px;
+  background: #eee5f6;
+  color: #704d97;
+  font: 800 9px Manrope, sans-serif;
+  letter-spacing: .4px;
+}
+
+.chat-setup-status .eyebrow {
+  color: #80619d;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.chat-setup-status h3 {
+  margin: 5px 0;
+  color: #403548;
+  font: 800 16px/1.3 Manrope, sans-serif;
+}
+
+.chat-setup-status p,
+.chat-setup-details p {
+  margin: 0;
+  color: #776e7d;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chat-setup-details {
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid #e9e1ed;
+}
+
+.chat-setup-details summary {
+  color: #68478e;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chat-setup-details ol {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding-left: 20px;
+  color: #615967;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chat-setup-details code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #f0ebf4;
+  color: #533d6b;
+  overflow-wrap: anywhere;
+}
+
+.chat-setup-details p {
+  margin-bottom: 10px;
+}
+
+.chat-setup-details a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #7450a5;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
