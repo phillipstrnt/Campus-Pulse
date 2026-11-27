@@ -127,7 +127,7 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
       if (error) notify(error.message)
     }
     loadThread()
-    const channel = supabase.channel(`conversation-${activeConversation}`, { config: { broadcast: { self: false } } })
+    const channel = supabase.channel(`conversation:${activeConversation}`, { config: { private: true, broadcast: { self: false } } })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConversation}` }, loadThread)
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
         if (!active || payload?.userId === userId) return
@@ -305,5 +305,5 @@ export default function Messaging({ session, isPlus, selectedPerson, notify, onU
           selfTypingTimerRef.current = window.setTimeout(() => setSelfTyping(false), 1800)
         } else setSelfTyping(false)
         if (!supabase && value.trim()) { setPeerTyping(false); if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current) }
-      }} disabled={blockedIds.includes(activePeer.id) || busy} maxLength={2000} /><button className="send-button" aria-label="Send message" disabled={!draft.trim() || busy}>↑</button></form>{recording && <small className="chat-hint recording-hint">● Recording voice note · click ■ to send</small>}{recordingError && <small className="chat-hint" role="status">{recordingError}</small>}{supabase && !activeConversation && <small className="chat-hint">Send your first note to create a private conversation.</small>}</> : <div className="chat-empty"><span className="lock-icon">✉</span><h2>Start a campus conversation.</h2><p>Choose a campus member to connect.</p></div>}</section></div>{!supabase && <p className="chat-hint">Demo messages stay in this browser. Connect Supabase for secure shared conversations.</p>}</div>
+      }} disabled={blockedIds.includes(activePeer.id) || busy} maxLength={2000} /><button className="send-button" aria-label="Send message" disabled={!draft.trim() || busy}>↑</button></form>{recording && <small className="chat-hint recording-hint">● Recording voice note · click ■ to send</small>}{recordingError && <small className="chat-hint" role="status">{recordingError}</small>}{supabase && !activeConversation && <small className="chat-hint">Send your first note to create a private conversation.</small>}</> : <div className="chat-empty"><span className="lock-icon">✉</span><h2>Start a campus conversation.</h2><p>Choose a campus member to connect.</p></div>}</section></div>{!supabase && <p className="chat-hint">Preview mode: messages stay on this device. To enable shared chats, add the Supabase project URL and public key to the site build and apply every migration in supabase/migrations.</p>}</div>
 }
